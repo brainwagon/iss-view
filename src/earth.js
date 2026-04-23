@@ -197,16 +197,14 @@ export async function createEarth(scene) {
       cloudMesh.visible = visible;
     },
     // Rotate Earth and Cloud layers to match real sidereal time (GMST in radians)
-    // 1. Rotation direction: +gmst is Eastward (X -> -Z in Three.js maps to X -> Y in ECI)
-    // 2. Offset: Texture Lon 0 is at U=0, which SphereGeometry puts at local -X.
-    //    To put local -X at world angle 0 (at GMST=0), we need rotation.y = PI.
+    // Three.js and ECI mappings require earthMesh to rotate by exactly +gmst
+    // to align the Prime Meridian (at u=0.5 on the texture) under the ISS.
     setGMST(gmst) {
-      const rotation = gmst + Math.PI;
-      earthMesh.rotation.y = rotation;
+      earthMesh.rotation.y = gmst;
     },
     // Independent cloud rotation update
     updateClouds(gmst, drift) {
-      cloudMesh.rotation.y = gmst + Math.PI + drift;
+      cloudMesh.rotation.y = gmst + drift;
     },
   };
 }

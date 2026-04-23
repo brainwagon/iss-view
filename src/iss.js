@@ -194,15 +194,17 @@ export class ISSTracker {
       const latRad = (data.latitude * Math.PI) / 180;
       const lonRad = (data.longitude * Math.PI) / 180;
       const r = 6371 + data.altitude;
+      const gmst = gstime(new Date());
 
-      // Approximate ECI-like position (ignores Earth rotation but sufficient for camera)
-      const pos = {
-        x: r * Math.cos(latRad) * Math.cos(lonRad),
+      // Approximate ECI position: Right Ascension = Longitude + GMST
+      const ra = lonRad + gmst;
+      const posEci = {
+        x: r * Math.cos(latRad) * Math.cos(ra),
         y: r * Math.sin(latRad),
-        z: r * Math.cos(latRad) * Math.sin(lonRad),
+        z: r * Math.cos(latRad) * Math.sin(ra),
       };
 
-      this.position = pos;
+      this.position = eciToThree(posEci);
       this.geodetic = {
         lat: data.latitude,
         lon: data.longitude,

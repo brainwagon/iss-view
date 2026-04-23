@@ -197,17 +197,16 @@ export async function createEarth(scene) {
       cloudMesh.visible = visible;
     },
     // Rotate Earth and Cloud layers to match real sidereal time (GMST in radians)
-    // Eastward rotation is negative around Y-axis in this mapping.
-    // Lon 0 is at -Z (phi = -PI/2) on the mesh. We want it at +X (phi = 0) at GMST=0.
-    // phi_world = rotation + phi_local => 0 = rotation - PI/2 => rotation = PI/2.
+    // 1. Rotation direction: +gmst is Eastward (X -> -Z in Three.js maps to X -> Y in ECI)
+    // 2. Offset: Texture Lon 0 is at U=0, which SphereGeometry puts at local -X.
+    //    To put local -X at world angle 0 (at GMST=0), we need rotation.y = PI.
     setGMST(gmst) {
-      const rotation = -gmst + Math.PI / 2;
+      const rotation = gmst + Math.PI;
       earthMesh.rotation.y = rotation;
-      // We don't set cloudMesh.rotation directly here anymore to allow independent drift
     },
     // Independent cloud rotation update
     updateClouds(gmst, drift) {
-      cloudMesh.rotation.y = -gmst + Math.PI / 2 + drift;
+      cloudMesh.rotation.y = gmst + Math.PI + drift;
     },
   };
 }

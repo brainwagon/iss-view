@@ -12,10 +12,11 @@ export class MapOverlay {
     img.onload = () => { this.earthImg = img; };
   }
 
-  // sunDirWorld: Three.js Vector3 in world space (Y=north/ECI-Z, X=ECI-X, Z=-ECI-Y)
+  // sunDirWorld, moonDirWorld: Three.js Vector3 unit vectors in world space
+  //   (Y=north/ECI-Z, X=ECI-X, Z=-ECI-Y)
   // gmst: Greenwich Mean Sidereal Time in radians
   // track: [{lat, lon, t}] array from ISSTracker.getGroundTrack(), or null
-  update(issLat, issLon, sunDirWorld, gmst, track) {
+  update(issLat, issLon, sunDirWorld, moonDirWorld, gmst, track) {
     if (!this.earthImg) return;
 
     const W = this.canvas.width;
@@ -24,15 +25,25 @@ export class MapOverlay {
 
     ctx.drawImage(this.earthImg, 0, 0, W, H);
 
-    // Subsolar geographic coordinates
-    const subLatRad = Math.asin(Math.max(-1, Math.min(1, sunDirWorld.y)));
-    const eciLonRad = Math.atan2(-sunDirWorld.z, sunDirWorld.x);
-    let subLonRad = eciLonRad - gmst;
-    subLonRad = ((subLonRad + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
-
-    this._drawNightOverlay(ctx, W, H, subLatRad, subLonRad);
+    const sun = this._subpoint(sunDirWorld, gmst);
+    this._drawNightOverlay(ctx, W, H, sun.lat, sun.lon);
     if (track) this._drawTrack(ctx, W, H, track);
+
+    if (moonDirWorld) {
+      const moon = this._subpoint(moonDirWorld, gmst);
+      this._drawMoonIcon(ctx, W, H, moon.lat, moon.lon);
+    }
+    this._drawSunIcon(ctx, W, H, sun.lat, sun.lon);
     this._drawISS(ctx, W, H, issLat * Math.PI / 180, issLon * Math.PI / 180);
+  }
+
+  // World-space unit vector → geographic sub-point (lat, lon) in radians.
+  _subpoint(dirWorld, gmst) {
+    const lat = Math.asin(Math.max(-1, Math.min(1, dirWorld.y)));
+    const eciLon = Math.atan2(-dirWorld.z, dirWorld.x);
+    let lon = eciLon - gmst;
+    lon = ((lon + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+    return { lat, lon };
   }
 
   _drawNightOverlay(ctx, W, H, subLatRad, subLonRad) {
@@ -140,6 +151,81 @@ export class MapOverlay {
       ctx.fillStyle = p.t < 0 ? 'rgba(255, 180, 60, 0.7)' : 'rgba(100, 220, 255, 0.85)';
       ctx.fill();
     }
+    ctx.restore();
+  }
+
+  _drawSunIcon(ctx, W, H, latRad, lonRad) {
+    const x = (lonRad / Math.PI + 1) / 2 * W;
+    const y = (0.5 - latRad / Math.PI) * H;
+
+    ctx.save();
+    // Soft halo
+    const halo = ctx.createRadialGradient(x, y, 0, x, y, 12);
+    halo.addColorStop(0, 'rgba(255, 235, 150, 0.9)');
+    halo.addColorStop(0.5, 'rgba(255, 210, 80, 0.4)');
+    halo.addColorStop(1, 'rgba(255, 180, 40, 0)');
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(x, y, 12, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Rays
+    ctx.strokeStyle = 'rgba(255, 230, 130, 0.9)';
+    ctx.lineWidth = 1.2;
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const r0 = 5.5, r1 = 8.5;
+      ctx.beginPath();
+      ctx.moveTo(x + Math.cos(a) * r0, y + Math.sin(a) * r0);
+      ctx.lineTo(x + Math.cos(a) * r1, y + Math.sin(a) * r1);
+      ctx.stroke();
+    }
+
+    // Core disc
+    ctx.beginPath();
+    ctx.arc(x, y, 3.2, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff4b0';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(120, 80, 0, 0.6)';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  _drawMoonIcon(ctx, W, H, latRad, lonRad) {
+    const x = (lonRad / Math.PI + 1) / 2 * W;
+    const y = (0.5 - latRad / Math.PI) * H;
+    const R = 5;
+
+    ctx.save();
+    // Outer glow ring (stroke, not destination-out — so it reads over the
+    // dark night overlay and the map without erasing anything).
+    ctx.strokeStyle = 'rgba(230, 235, 250, 0.55)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(x, y, R + 2, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Bright disc
+    ctx.beginPath();
+    ctx.arc(x, y, R, 0, Math.PI * 2);
+    ctx.fillStyle = '#f0f3ff';
+    ctx.fill();
+
+    // Dark limb outline for contrast on bright ocean
+    ctx.strokeStyle = 'rgba(30, 40, 60, 0.9)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Simple shaded crescent — darken the side away from the sun
+    ctx.beginPath();
+    ctx.arc(x + R * 0.55, y - R * 0.2, R * 0.95, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.beginPath();
+    ctx.arc(x, y, R, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(90, 100, 125, 0.85)';
+    ctx.fill();
     ctx.restore();
   }
 

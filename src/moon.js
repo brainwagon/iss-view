@@ -1,5 +1,9 @@
 import * as THREE from 'three';
 
+// Moon lives on its own layer so its illumination is independent of the
+// ISS-eclipse-modulated sunLight. The main camera enables this layer.
+export const MOON_LAYER = 1;
+
 function makeGlowTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 256;
@@ -39,6 +43,18 @@ export class MoonObject {
     );
     this._glow.renderOrder = 1;
 
+    this._mesh.layers.set(MOON_LAYER);
+    this._glow.layers.set(MOON_LAYER);
+
+    // Dedicated sun light for the moon, never modulated by ISS umbra.
+    // Positioned at scene origin + sunDir*(large) on update() so the moon
+    // sees parallel rays from the real sun direction. Target at origin is
+    // fine because DirectionalLight only cares about (target - position).
+    this._sunLight = new THREE.DirectionalLight(0xfff4e0, 2.0);
+    this._sunLight.layers.set(MOON_LAYER);
+    scene.add(this._sunLight);
+    scene.add(this._sunLight.target);
+
     scene.add(this._mesh);
     scene.add(this._glow);
   }
@@ -47,5 +63,12 @@ export class MoonObject {
     this._mesh.position.copy(moonPos);
     this._glow.position.copy(moonPos);
     if (this._camera) this._glow.lookAt(this._camera.position);
+  }
+
+  // Call each frame with the world-space sun direction unit vector.
+  updateSun(sunDirWorld) {
+    this._sunLight.position.copy(sunDirWorld).multiplyScalar(1_000_000);
+    this._sunLight.target.position.set(0, 0, 0);
+    this._sunLight.target.updateMatrixWorld();
   }
 }

@@ -9,6 +9,7 @@ export class ISSModel {
     this.scene.add(this.group);
     this.loaded = false;
     this.visible = false;
+    this.sizeKm = 0.109;
   }
 
   async load(url = './assets/iss-high.glb') {
@@ -50,6 +51,12 @@ export class ISSModel {
           // Add to our group
           this.group.add(gltf.scene);
           this.loaded = true;
+
+          // Cache local-space max dimension so ORBIT camera doesn't recompute
+          // an AABB over the whole high-res model every frame.
+          const localBox = new THREE.Box3().setFromObject(gltf.scene);
+          const localSize = localBox.getSize(new THREE.Vector3());
+          this.sizeKm = Math.max(localSize.x, localSize.y, localSize.z);
 
           // Apply lighting properties to all meshes
           gltf.scene.traverse((obj) => {
@@ -164,10 +171,14 @@ export function createProceduralISS(scene) {
 
   scene.add(group);
 
+  const pBox = new THREE.Box3().setFromObject(group);
+  const pSize = pBox.getSize(new THREE.Vector3());
+
   return {
     group,
     loaded: true,
     visible: false,
+    sizeKm: Math.max(pSize.x, pSize.y, pSize.z),
 
     update(issData) {
       if (!issData) return;

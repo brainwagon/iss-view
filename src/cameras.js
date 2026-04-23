@@ -208,38 +208,21 @@ export class CameraManager {
       : new THREE.Vector3(0, 0, 1);
 
     const zenith = issPos.clone().normalize();
-    
-    // Dynamic distance calculation for 10% horizontal FOV:
-    // We calculate the exact bounding box of the ISS model to ensure it always
-    // occupies exactly 10% of the horizontal field of view, regardless of 
-    // the model's actual scale or dimension.
-    let issSizeKm = 0.1; // Default fallback (100 meters)
-    if (this._issModel && this._issModel.group) {
-      const box = new THREE.Box3().setFromObject(this._issModel.group);
-      if (!box.isEmpty()) {
-        const size = box.getSize(new THREE.Vector3());
-        // Use the maximum dimension of the bounding box
-        issSizeKm = Math.max(size.x, size.y, size.z);
-      }
-    }
+
+    const issSizeKm = (this._issModel && this._issModel.sizeKm) || 0.1;
 
     const vFovRad = THREE.MathUtils.degToRad(this.camera.fov);
     const hFovRad = 2 * Math.atan(Math.tan(vFovRad / 2) * this.camera.aspect);
-    
-    // Fraction of horizontal screen width to occupy (0.5 = 1/2)
+
     const horizontalFraction = 0.5;
-    
-    // Linear distance calculation:
-    // Screen width at distance D is W = 2 * D * tan(HFOV / 2)
-    // We want issSizeKm = horizontalFraction * W
-    // D = issSizeKm / (2 * horizontalFraction * tan(HFOV / 2))
     const dist = issSizeKm / (2 * horizontalFraction * Math.tan(hFovRad / 2));
 
-    // Observer offset direction: behind (anti-ram) and slightly above (roughly 15 deg elevation)
-    const offsetDir = forward.clone().negate().multiplyScalar(10)
-      .addScaledVector(zenith, 2.7).normalize();
+    // Behind (anti-ram) and above (~15° elevation)
+    const offsetDir = new THREE.Vector3()
+      .addScaledVector(forward, -10)
+      .addScaledVector(zenith, 2.7)
+      .normalize();
 
-    // Final offset vector
     const observerOffset = offsetDir.multiplyScalar(dist);
 
     this._targetPos.copy(issPos).add(observerOffset);

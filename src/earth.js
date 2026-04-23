@@ -196,9 +196,11 @@ export async function createEarth(scene) {
     setCloudsVisible(visible) {
       cloudMesh.visible = visible;
     },
-    // Rotate Earth texture to match real sidereal time (GMST in radians)
+    // Rotate Earth and Cloud layers to match real sidereal time (GMST in radians)
     setGMST(gmst) {
-      earthMesh.rotation.y = gmst;
+      const rotation = gmst - Math.PI / 2;
+      earthMesh.rotation.y = rotation;
+      cloudMesh.rotation.y = rotation;
     },
   };
 }

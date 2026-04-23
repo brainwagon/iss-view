@@ -91,8 +91,8 @@ function animate(timestamp) {
     if (syncData) currentData = syncData;
   }
 
-  // Animate cloud rotation (~1/3 Earth rotation rate)
-  cloudMesh.rotation.y += 0.00002 * (delta * 1000);
+  // Animate cloud rotation (slow drift relative to Earth)
+  cloudMesh.rotation.y += 0.00001 * (delta * 1000);
 
   // Update ISS model position and orientation
   if (issModel) {

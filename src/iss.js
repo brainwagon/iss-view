@@ -24,6 +24,31 @@ function eciToThree(eciVec) {
 // ---- TLE Fetching ----
 const TLE_URL = 'https://celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=TLE';
 const FALLBACK_URL = 'https://api.wheretheiss.at/v1/satellites/25544';
+const TLE_CACHE_KEY = 'iss-view:tle';
+const TLE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function readTLECache() {
+  try {
+    const raw = localStorage.getItem(TLE_CACHE_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (!obj.line1 || !obj.line2 || !obj.fetchedAt) return null;
+    return obj;
+  } catch {
+    return null;
+  }
+}
+
+function writeTLECache(line1, line2) {
+  try {
+    localStorage.setItem(
+      TLE_CACHE_KEY,
+      JSON.stringify({ line1, line2, fetchedAt: Date.now() })
+    );
+  } catch (err) {
+    console.warn('[ISS] TLE cache write failed:', err.message);
+  }
+}
 
 async function fetchTLE() {
   const res = await fetch(TLE_URL);
@@ -84,16 +109,55 @@ export class ISSTracker {
   }
 
   async init() {
+    // Try cached TLE first so startup doesn't depend on the network and we
+    // stay on the SGP4 path even when celestrak is 403-ing.
+    const cached = readTLECache();
+    if (cached && Date.now() - cached.fetchedAt < TLE_TTL_MS) {
+      this.satrec = twoline2satrec(cached.line1, cached.line2);
+      this.usedTLE = true;
+      this.lastTLEFetch = cached.fetchedAt;
+      const ageH = ((Date.now() - cached.fetchedAt) / 3_600_000).toFixed(1);
+      console.log(`[ISS] TLE loaded from cache (age: ${ageH}h)`);
+      return;
+    }
+
     try {
       const { line1, line2 } = await fetchTLE();
       this.satrec = twoline2satrec(line1, line2);
       this.usedTLE = true;
       this.lastTLEFetch = Date.now();
-      console.log('[ISS] TLE loaded successfully');
+      writeTLECache(line1, line2);
+      console.log('[ISS] TLE fetched and cached');
     } catch (err) {
-      console.warn('[ISS] TLE fetch failed, will use fallback API:', err.message);
-      this.usedTLE = false;
+      // Network fetch failed and no fresh cache — fall back to stale cache
+      // (still better than 1 Hz API) before giving up entirely.
+      if (cached) {
+        this.satrec = twoline2satrec(cached.line1, cached.line2);
+        this.usedTLE = true;
+        this.lastTLEFetch = cached.fetchedAt;
+        const ageH = ((Date.now() - cached.fetchedAt) / 3_600_000).toFixed(1);
+        console.warn(`[ISS] TLE fetch failed (${err.message}); using stale cache (age: ${ageH}h)`);
+      } else {
+        console.warn('[ISS] TLE fetch failed, will use fallback API:', err.message);
+        this.usedTLE = false;
+      }
     }
+  }
+
+  // Returns [{lat, lon, t}] for t in minutes relative to now, or null if no TLE.
+  // t < 0 = past, t > 0 = future.
+  getGroundTrack(now, pastMin = 45, futureMin = 45, stepMin = 5) {
+    if (!this.satrec) return null;
+    const points = [];
+    for (let t = -pastMin; t <= futureMin; t += stepMin) {
+      const date = new Date(now.getTime() + t * 60_000);
+      const posVel = propagate(this.satrec, date);
+      if (!posVel || posVel.position === false) continue;
+      const gst = gstime(date);
+      const geo = eciToGeodetic(posVel.position, gst);
+      points.push({ lat: degreesLat(geo.latitude), lon: degreesLong(geo.longitude), t });
+    }
+    return points.length ? points : null;
   }
 
   // Synchronously propagate to a specific date using existing satrec
@@ -129,16 +193,19 @@ export class ISSTracker {
 
   // Called once per tick to update ISS position
   async update() {
-    // Re-fetch TLE once per hour to prevent SGP4 accuracy degradation
+    // Re-fetch TLE once per 24h. SGP4 drift on the ISS is sub-arcsecond
+    // over a day at this rendering scale, so refreshing more often is pure
+    // network cost. On failure we keep running on the existing satrec.
     if (
       this.usedTLE &&
-      Date.now() - this.lastTLEFetch > 3_600_000
+      Date.now() - this.lastTLEFetch > TLE_TTL_MS
     ) {
       try {
         const { line1, line2 } = await fetchTLE();
         this.satrec = twoline2satrec(line1, line2);
         this.lastTLEFetch = Date.now();
-        console.log('[ISS] TLE refreshed');
+        writeTLECache(line1, line2);
+        console.log('[ISS] TLE refreshed and cached');
       } catch (err) {
         console.warn('[ISS] TLE refresh failed:', err.message);
       }

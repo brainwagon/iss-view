@@ -5,16 +5,22 @@ import { createEarth } from './earth.js';
 import { ISSTracker } from './iss.js';
 import { CameraManager, MODES } from './cameras.js';
 import { ISSModel, createProceduralISS } from './iss-model.js';
+import { MapOverlay } from './map.js';
+import { SunObject } from './sun.js';
+import { MoonObject } from './moon.js';
 
 const { scene, camera, renderer } = createScene();
 const earth = await createEarth(scene);
-const { earthMesh, cloudMesh } = earth;
+const { earthMesh, cloudMesh, atmosMesh } = earth;
 const iss = new ISSTracker();
 const cameraManager = new CameraManager(camera, renderer);
 const clock = new THREE.Clock();
+const mapOverlay = new MapOverlay();
 
 // ISS 3D model (with procedural fallback)
 let issModel = null;
+let sunObject = null;
+let moonObject = null;
 
 // HUD elements
 const hudLat = document.getElementById('hud-lat');
@@ -23,11 +29,34 @@ const hudAlt = document.getElementById('hud-alt');
 const hudVel = document.getElementById('hud-vel');
 const hudSrc = document.getElementById('hud-src');
 const hudMode = document.getElementById('hud-mode');
+const hudFps = document.getElementById('hud-fps');
 
 let lastTick = 0;
 const TICK_MS = 1000; // ISS position update interval
 let currentData = null;
-let cloudDrift = 0;
+
+let fpsFrames = 0;
+let fpsLastUpdate = 0;
+
+// Moon position calculation (simplified Meeus, accurate to ~1°)
+// Returns THREE.Vector3 in Three.js world space with magnitude = distance in km
+function getMoonPositionThree(date) {
+  const JD = date.getTime() / 86400000.0 + 2440587.5;
+  const d = JD - 2451545.0;
+  const D2R = Math.PI / 180;
+  const Lp = (218.316 + 13.176396 * d) % 360;
+  const M  = ((134.963 + 13.064993 * d) % 360) * D2R;
+  const F  = (( 93.272 + 13.229350 * d) % 360) * D2R;
+  const lambda = ((Lp + 6.289 * Math.sin(M)) % 360) * D2R;
+  const beta   = (5.128 * Math.sin(F)) * D2R;
+  const delta  = 385001 - 20905 * Math.cos(M); // km
+  const eps = 23.439 * D2R;
+  const eciX =  Math.cos(beta) * Math.cos(lambda);
+  const eciY =  Math.cos(eps) * Math.cos(beta) * Math.sin(lambda) - Math.sin(eps) * Math.sin(beta);
+  const eciZ =  Math.sin(eps) * Math.cos(beta) * Math.sin(lambda) + Math.cos(eps) * Math.sin(beta);
+  // ECI → Three.js: threeX=eciX, threeY=eciZ, threeZ=-eciY
+  return new THREE.Vector3(eciX, eciZ, -eciY).multiplyScalar(delta);
+}
 
 // Sun direction calculation (approximate, accurate to ~1°)
 function getSunDirectionECI(date) {
@@ -65,13 +94,19 @@ async function tick() {
   hudMode.textContent = cameraManager.mode.toUpperCase();
 
   const now = new Date();
+  const gmst = gstime(now);
 
   // Rotate Earth texture to match real sidereal orientation
-  earth.setGMST(gstime(now));
+  earth.setGMST(gmst);
 
   // Update sun direction for day/night lighting
   const sunDir = getSunDirectionECI(now);
   earth.setSunDirection(sunDir);
+  if (moonObject) moonObject.update(getMoonPositionThree(now));
+
+  // Update 2D map overlay
+  const track = iss.getGroundTrack(now);
+  mapOverlay.update(data.geodetic.lat, data.geodetic.lon, sunDir, gmst, track);
 }
 
 function animate(timestamp) {
@@ -79,6 +114,15 @@ function animate(timestamp) {
 
   const delta = clock.getDelta();
   const now = new Date();
+
+  // FPS counter: count frames, update HUD ~2x/sec
+  fpsFrames++;
+  if (timestamp - fpsLastUpdate > 500) {
+    const fps = (fpsFrames * 1000) / (timestamp - fpsLastUpdate);
+    hudFps.textContent = fps.toFixed(1);
+    fpsFrames = 0;
+    fpsLastUpdate = timestamp;
+  }
 
   // Tick ISS update once per second (for HUD/API fallback)
   if (timestamp - lastTick > TICK_MS) {
@@ -92,9 +136,6 @@ function animate(timestamp) {
     if (syncData) currentData = syncData;
   }
 
-  // Animate cloud drift (relative to Earth surface)
-  cloudDrift += 0.00001 * (delta * 1000);
-
   // Update ISS model position and orientation
   if (issModel) {
     issModel.update(currentData);
@@ -106,12 +147,12 @@ function animate(timestamp) {
   // Rotate Earth and Cloud layers to match real sidereal orientation
   const gmst = gstime(now);
   earth.setGMST(gmst);
-  earth.updateClouds(gmst, cloudDrift);
+  earth.updateClouds(gmst);
 
   // Update sun direction for day/night lighting
-
   const sunDir = getSunDirectionECI(now);
   earth.setSunDirection(sunDir);
+  if (sunObject) sunObject.update(sunDir);
 
   // Render logic
   const mode = cameraManager.mode;
@@ -119,29 +160,44 @@ function animate(timestamp) {
 
   if (showModel) {
     // Two-phase render to handle precision/clipping when following ISS
-    // Pass 1 — Earth (ISS hidden, standard near/far)
+    // Pass 1 — Earth (ISS hidden). Scale near to camera altitude so the
+    // near/far ratio stays reasonable when zoomed far out in FREE mode.
+    const distFromCenter = camera.position.length();
+    const altAboveSurface = Math.max(1, distFromCenter - 6371);
     renderer.autoClear = false;
-    camera.near = 1;
+    camera.near = Math.max(1, altAboveSurface * 0.1);
     camera.far = 1_000_000;
     camera.updateProjectionMatrix();
     if (issModel) issModel.setVisible(false);
     renderer.clear();
     renderer.render(scene, camera);
 
-    // Pass 2 — ISS (tight near/far around the camera-to-ISS distance)
-    // For EXTERIOR, far=1 is fine. For ORBIT, we need more room.
+    // Pass 2 — ISS (tight frustum hugging the camera-to-ISS distance).
+    // Near scales with distToIss so the near/far ratio stays ~1000:1 even when
+    // distToIss is large (FREE mode with camera far from ISS); a fixed near of
+    // 0.001 km produced catastrophic depth precision and z-fighting between the
+    // ISS model, Earth, and the cloud layer.
     const distToIss = currentData ? camera.position.distanceTo(
       new THREE.Vector3(currentData.position.x, currentData.position.y, currentData.position.z)
     ) : 2;
-    
-    camera.near = 0.001; 
-    camera.far = Math.max(1, distToIss + 5); // 5km padding
+
+    camera.near = Math.max(0.001, distToIss - 1);
+    camera.far = Math.max(1, distToIss + 5);
     camera.updateProjectionMatrix();
     renderer.clearDepth();
+    // Hide Earth/clouds/atmosphere in Pass 2 — Pass 1 already rendered them,
+    // and including them here pulls them into the tight frustum where they
+    // z-fight with the ISS model.
+    const cloudsWereVisible = cloudMesh.visible;
+    earthMesh.visible = false;
+    cloudMesh.visible = false;
+    atmosMesh.visible = false;
     if (issModel) issModel.setVisible(true);
     renderer.render(scene, camera);
+    earthMesh.visible = true;
+    cloudMesh.visible = cloudsWereVisible;
+    atmosMesh.visible = true;
 
-    // Restore defaults for UI or other overlays
     camera.near = 1;
     camera.far = 1_000_000;
     camera.updateProjectionMatrix();
@@ -169,6 +225,13 @@ function animate(timestamp) {
 
     console.log('[App] Fetching initial ISS position...');
     await tick();
+
+    sunObject = new SunObject(scene, camera);
+    moonObject = new MoonObject(scene, camera);
+    const initNow = new Date();
+    sunObject.update(getSunDirectionECI(initNow));
+    moonObject.update(getMoonPositionThree(initNow));
+
     console.log('[App] Starting animation loop...');
     animate(0);
   } catch (err) {
@@ -188,6 +251,11 @@ chkClouds.addEventListener('change', (e) => {
   earth.setCloudsVisible(e.target.checked);
 });
 earth.setCloudsVisible(chkClouds.checked); // apply default (off)
+const chkMap = document.getElementById('chk-map');
+chkMap.addEventListener('change', (e) => {
+  mapOverlay.setVisible(e.target.checked);
+});
+mapOverlay.setVisible(chkMap.checked); // apply default (on)
 
 // Keyboard shortcuts for camera modes
 document.addEventListener('keydown', (e) => {
@@ -202,6 +270,11 @@ document.addEventListener('keydown', (e) => {
   if (modeMap[key]) {
     cameraManager.setMode(modeMap[key]);
     updateCameraButtons();
+  }
+  if (key === 'm') {
+    const chk = document.getElementById('chk-map');
+    chk.checked = !chk.checked;
+    mapOverlay.setVisible(chk.checked);
   }
 });
 

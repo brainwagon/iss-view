@@ -136,6 +136,7 @@ export async function createEarth(scene) {
     transparent: true,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
+    depthTest: false,
     side: THREE.FrontSide,
   });
   const atmosMesh = new THREE.Mesh(
@@ -167,8 +168,10 @@ export async function createEarth(scene) {
       color: 0xffffff,
       size: 400,
       sizeAttenuation: true,
+      depthWrite: false,
     })
   );
+  stars.renderOrder = -1;
   scene.add(stars);
   console.log('[Earth] Star field created');
 
@@ -202,9 +205,9 @@ export async function createEarth(scene) {
     setGMST(gmst) {
       earthMesh.rotation.y = gmst;
     },
-    // Independent cloud rotation update
-    updateClouds(gmst, drift) {
-      cloudMesh.rotation.y = gmst + drift;
+    // Cloud layer rotates with the Earth (no extra drift)
+    updateClouds(gmst) {
+      cloudMesh.rotation.y = gmst;
     },
   };
 }

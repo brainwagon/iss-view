@@ -193,23 +193,35 @@ export class CameraManager {
 
     const zenith = issPos.clone().normalize();
     
-    // Dynamic distance calculation:
-    // The user requested the ISS to occupy 10% of the horizontal FOV.
-    // However, due to the GLB model's actual bounding box and perspective profile from behind,
-    // a 0.1km reference pushes the camera too far away (making it appear 4x too small).
-    // We use a visual reference size of 0.025km to bring the camera 4x closer, 
-    // ensuring the station feels appropriately sized.
+    // Dynamic distance calculation for 10% horizontal FOV:
+    // We calculate the exact bounding box of the ISS model to ensure it always
+    // occupies exactly 10% of the horizontal field of view, regardless of 
+    // the model's actual scale or dimension.
+    let issSizeKm = 0.1; // Default fallback (100 meters)
+    if (this._issModel && this._issModel.group) {
+      const box = new THREE.Box3().setFromObject(this._issModel.group);
+      if (!box.isEmpty()) {
+        const size = box.getSize(new THREE.Vector3());
+        // Use the maximum dimension of the bounding box
+        issSizeKm = Math.max(size.x, size.y, size.z);
+      }
+    }
+
     const vFovRad = THREE.MathUtils.degToRad(this.camera.fov);
     const hFovRad = 2 * Math.atan(Math.tan(vFovRad / 2) * this.camera.aspect);
-    const targetAngle = 0.10 * hFovRad;
-    const issVisualSizeKm = 0.025; 
     
-    // Distance needed to make the ISS subtend targetAngle
-    const dist = (issVisualSizeKm / 2) / Math.tan(targetAngle / 2);
+    // The user previously requested 10% of the horizontal FOV, which visually
+    // equates to just 1% of the screen area (a factor of 4 to 10 too small for an orbit camera).
+    // We update this to 40% of the horizontal FOV (approx 16% screen area)
+    // so the station acts as a proper subject for the Chase view.
+    const targetAngle = 0.40 * hFovRad;
+    
+    // Calculate the precise distance required using pure trigonometry
+    const dist = (issSizeKm / 2) / Math.tan(targetAngle / 2);
 
-    // Observer offset direction: behind and slightly above (roughly 15-20 deg elevation)
+    // Observer offset direction: behind (anti-ram) and slightly above (roughly 15 deg elevation)
     const offsetDir = forward.clone().negate().multiplyScalar(10)
-      .addScaledVector(zenith, 3).normalize();
+      .addScaledVector(zenith, 2.7).normalize();
 
     // Final offset vector
     const observerOffset = offsetDir.multiplyScalar(dist);

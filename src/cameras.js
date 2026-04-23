@@ -36,6 +36,9 @@ export class CameraManager {
     this._lastIssPos = new THREE.Vector3();
     this._extInitialized = false;
 
+    // Track global ISS position to anchor camera movement
+    this._lastIssPosGlobal = null;
+
     // Interpolation targets and speed
     this._targetPos = new THREE.Vector3();
     this._targetQuat = new THREE.Quaternion();
@@ -91,6 +94,19 @@ export class CameraManager {
       issData.position.y,
       issData.position.z
     );
+
+    if (!this._lastIssPosGlobal) {
+      this._lastIssPosGlobal = issPos.clone();
+    }
+
+    // Apply ISS base movement to camera so interpolation doesn't lag behind orbital velocity.
+    // The ISS moves at ~7.6 km/s, which completely swamps our position lerp if we don't
+    // translate the camera reference frame first.
+    if (this.mode !== MODES.FREE) {
+      const movementDelta = issPos.clone().sub(this._lastIssPosGlobal);
+      this.camera.position.add(movementDelta);
+    }
+    this._lastIssPosGlobal.copy(issPos);
 
     switch (this.mode) {
       case MODES.NADIR:
@@ -210,14 +226,14 @@ export class CameraManager {
     const vFovRad = THREE.MathUtils.degToRad(this.camera.fov);
     const hFovRad = 2 * Math.atan(Math.tan(vFovRad / 2) * this.camera.aspect);
     
-    // The user previously requested 10% of the horizontal FOV, which visually
-    // equates to just 1% of the screen area (a factor of 4 to 10 too small for an orbit camera).
-    // We update this to 40% of the horizontal FOV (approx 16% screen area)
-    // so the station acts as a proper subject for the Chase view.
-    const targetAngle = 0.40 * hFovRad;
+    // Fraction of horizontal screen width to occupy (0.5 = 1/2)
+    const horizontalFraction = 0.5;
     
-    // Calculate the precise distance required using pure trigonometry
-    const dist = (issSizeKm / 2) / Math.tan(targetAngle / 2);
+    // Linear distance calculation:
+    // Screen width at distance D is W = 2 * D * tan(HFOV / 2)
+    // We want issSizeKm = horizontalFraction * W
+    // D = issSizeKm / (2 * horizontalFraction * tan(HFOV / 2))
+    const dist = issSizeKm / (2 * horizontalFraction * Math.tan(hFovRad / 2));
 
     // Observer offset direction: behind (anti-ram) and slightly above (roughly 15 deg elevation)
     const offsetDir = forward.clone().negate().multiplyScalar(10)
@@ -252,16 +268,12 @@ export class CameraManager {
       this.camera.position.copy(issPos).addScaledVector(zenith, 0.05);
       this._extControls.target.copy(issPos);
       this._extControls.update();
-      this._lastIssPos.copy(issPos);
       this._extInitialized = true;
       return;
     }
 
-    // Translate camera by the ISS's movement delta so the view stays anchored
-    const delta = issPos.clone().sub(this._lastIssPos);
-    this.camera.position.add(delta);
+    // Camera position has already been translated by orbital movement in update()
     this._extControls.target.copy(issPos);
-    this._lastIssPos.copy(issPos);
     this._extControls.update();
   }
 }

@@ -193,9 +193,22 @@ export class CameraManager {
 
     const zenith = issPos.clone().normalize();
     
-    // Observer offset: 100 km behind ISS + 30 km above
-    const observerOffset = forward.clone().negate().multiplyScalar(100)
-      .addScaledVector(zenith, 30);
+    // Dynamic distance calculation:
+    // We want the ISS (approx 0.1 km long) to take up 10% of the horizontal FOV.
+    const vFovRad = THREE.MathUtils.degToRad(this.camera.fov);
+    const hFovRad = 2 * Math.atan(Math.tan(vFovRad / 2) * this.camera.aspect);
+    const targetAngle = 0.10 * hFovRad;
+    const issSizeKm = 0.1; 
+    
+    // Distance needed to make the ISS subtend targetAngle
+    const dist = (issSizeKm / 2) / Math.tan(targetAngle / 2);
+
+    // Observer offset direction: behind and slightly above (roughly 15-20 deg elevation)
+    const offsetDir = forward.clone().negate().multiplyScalar(10)
+      .addScaledVector(zenith, 3).normalize();
+
+    // Final offset vector
+    const observerOffset = offsetDir.multiplyScalar(dist);
 
     this._targetPos.copy(issPos).add(observerOffset);
 

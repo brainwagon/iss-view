@@ -27,6 +27,7 @@ const hudMode = document.getElementById('hud-mode');
 let lastTick = 0;
 const TICK_MS = 1000; // ISS position update interval
 let currentData = null;
+let cloudDrift = 0;
 
 // Sun direction calculation (approximate, accurate to ~1°)
 function getSunDirectionECI(date) {
@@ -91,8 +92,8 @@ function animate(timestamp) {
     if (syncData) currentData = syncData;
   }
 
-  // Animate cloud rotation (slow drift relative to Earth)
-  cloudMesh.rotation.y += 0.00001 * (delta * 1000);
+  // Animate cloud drift (relative to Earth surface)
+  cloudDrift += 0.00001 * (delta * 1000);
 
   // Update ISS model position and orientation
   if (issModel) {
@@ -102,10 +103,13 @@ function animate(timestamp) {
   // Update camera based on current mode and ISS data
   cameraManager.update(currentData, delta);
 
-  // Rotate Earth texture to match real sidereal orientation
-  earth.setGMST(gstime(now));
+  // Rotate Earth and Cloud layers to match real sidereal orientation
+  const gmst = gstime(now);
+  earth.setGMST(gmst);
+  earth.updateClouds(gmst, cloudDrift);
 
   // Update sun direction for day/night lighting
+
   const sunDir = getSunDirectionECI(now);
   earth.setSunDirection(sunDir);
 

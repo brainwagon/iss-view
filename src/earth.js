@@ -197,10 +197,17 @@ export async function createEarth(scene) {
       cloudMesh.visible = visible;
     },
     // Rotate Earth and Cloud layers to match real sidereal time (GMST in radians)
+    // Eastward rotation is negative around Y-axis in this mapping.
+    // Lon 0 is at -Z (phi = -PI/2) on the mesh. We want it at +X (phi = 0) at GMST=0.
+    // phi_world = rotation + phi_local => 0 = rotation - PI/2 => rotation = PI/2.
     setGMST(gmst) {
-      const rotation = gmst - Math.PI / 2;
+      const rotation = -gmst + Math.PI / 2;
       earthMesh.rotation.y = rotation;
-      cloudMesh.rotation.y = rotation;
+      // We don't set cloudMesh.rotation directly here anymore to allow independent drift
+    },
+    // Independent cloud rotation update
+    updateClouds(gmst, drift) {
+      cloudMesh.rotation.y = -gmst + Math.PI / 2 + drift;
     },
   };
 }

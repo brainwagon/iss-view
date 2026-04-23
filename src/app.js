@@ -77,11 +77,18 @@ function animate(timestamp) {
   requestAnimationFrame(animate);
 
   const delta = clock.getDelta();
+  const now = new Date();
 
-  // Tick ISS update once per second
+  // Tick ISS update once per second (for HUD/API fallback)
   if (timestamp - lastTick > TICK_MS) {
     lastTick = timestamp;
     tick();
+  }
+
+  // Smooth per-frame propagation if TLE is available
+  if (iss.usedTLE) {
+    const syncData = iss.getPropagatedState(now);
+    if (syncData) currentData = syncData;
   }
 
   // Animate cloud rotation (~1/3 Earth rotation rate)
@@ -95,8 +102,49 @@ function animate(timestamp) {
   // Update camera based on current mode and ISS data
   cameraManager.update(currentData, delta);
 
-  // Render
-  renderer.render(scene, camera);
+  // Rotate Earth texture to match real sidereal orientation
+  earth.setGMST(gstime(now));
+
+  // Update sun direction for day/night lighting
+  const sunDir = getSunDirectionECI(now);
+  earth.setSunDirection(sunDir);
+
+  // Render logic
+  const mode = cameraManager.mode;
+  const showModel = (mode === MODES.ORBIT || mode === MODES.FREE || mode === MODES.EXTERIOR);
+
+  if (showModel) {
+    // Two-phase render to handle precision/clipping when following ISS
+    // Pass 1 — Earth (ISS hidden, standard near/far)
+    renderer.autoClear = false;
+    camera.near = 1;
+    camera.far = 1_000_000;
+    camera.updateProjectionMatrix();
+    if (issModel) issModel.setVisible(false);
+    renderer.clear();
+    renderer.render(scene, camera);
+
+    // Pass 2 — ISS (tight near/far around the camera-to-ISS distance)
+    // For EXTERIOR, far=1 is fine. For ORBIT, we need more room.
+    const distToIss = currentData ? camera.position.distanceTo(
+      new THREE.Vector3(currentData.position.x, currentData.position.y, currentData.position.z)
+    ) : 2;
+    
+    camera.near = 0.001; 
+    camera.far = Math.max(1, distToIss + 5); // 5km padding
+    camera.updateProjectionMatrix();
+    renderer.clearDepth();
+    if (issModel) issModel.setVisible(true);
+    renderer.render(scene, camera);
+
+    // Restore defaults for UI or other overlays
+    camera.near = 1;
+    camera.far = 1_000_000;
+    camera.updateProjectionMatrix();
+    renderer.autoClear = true;
+  } else {
+    renderer.render(scene, camera);
+  }
 }
 
 // Main initialization
@@ -145,6 +193,7 @@ document.addEventListener('keydown', (e) => {
     f: MODES.FORWARD,
     o: MODES.ORBIT,
     c: MODES.FREE,
+    e: MODES.EXTERIOR,
   };
   if (modeMap[key]) {
     cameraManager.setMode(modeMap[key]);

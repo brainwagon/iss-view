@@ -7,6 +7,7 @@ export const MODES = {
   FORWARD: 'forward',
   ORBIT: 'orbit',
   FREE: 'free',
+  EXTERIOR: 'exterior',
 };
 
 export class CameraManager {
@@ -15,7 +16,7 @@ export class CameraManager {
     this.renderer = renderer;
     this.mode = MODES.NADIR;
 
-    // OrbitControls for FREE mode
+    // OrbitControls for FREE mode (Earth-centered)
     this.controls = new OrbitControls(camera, renderer.domElement);
     this.controls.enabled = false;
     this.controls.target.set(0, 0, 0);
@@ -24,11 +25,22 @@ export class CameraManager {
     this.controls.dampingFactor = 0.05;
     this.controls.enableDamping = true;
 
+    // OrbitControls for EXTERIOR mode (ISS-centered, close range)
+    this._extControls = new OrbitControls(camera, renderer.domElement);
+    this._extControls.enabled = false;
+    this._extControls.minDistance = 0.01;  // 10 m
+    this._extControls.maxDistance = 0.5;   // 500 m
+    this._extControls.dampingFactor = 0.08;
+    this._extControls.enableDamping = true;
+
+    this._lastIssPos = new THREE.Vector3();
+    this._extInitialized = false;
+
     // Interpolation targets and speed
     this._targetPos = new THREE.Vector3();
     this._targetQuat = new THREE.Quaternion();
-    this._lerpAlpha = 0.05; // position lerp speed
-    this._slerpAlpha = 0.05; // quaternion slerp speed
+    this._lerpAlpha = 3.0; // base lerp speed (alpha * delta)
+    this._slerpAlpha = 3.0; // base slerp speed (alpha * delta)
 
     this._issModel = null;
 
@@ -56,15 +68,13 @@ export class CameraManager {
     if (this.mode !== MODES.NADIR) this._nadirZoom = 0;
 
     // Enable/disable controls based on mode
-    if (newMode === MODES.FREE) {
-      this.controls.enabled = true;
-    } else {
-      this.controls.enabled = false;
-    }
+    this.controls.enabled = (newMode === MODES.FREE);
+    this._extControls.enabled = (newMode === MODES.EXTERIOR);
+    if (newMode === MODES.EXTERIOR) this._extInitialized = false;
 
     // Update model visibility
     if (this._issModel) {
-      const showModel = newMode === MODES.ORBIT || newMode === MODES.FREE;
+      const showModel = newMode === MODES.ORBIT || newMode === MODES.FREE || newMode === MODES.EXTERIOR;
       this._issModel.setVisible(showModel);
     }
   }
@@ -73,7 +83,6 @@ export class CameraManager {
     this._issModel = issModel;
   }
 
-  // Called every frame
   update(issData, delta) {
     if (!issData) return;
 
@@ -86,20 +95,23 @@ export class CameraManager {
     switch (this.mode) {
       case MODES.NADIR:
         this._updateModelVisibility(false);
-        this._applyNadir(issPos, issData.lvlh);
+        this._applyNadir(issPos, issData.lvlh, delta);
         break;
       case MODES.FORWARD:
         this._updateModelVisibility(false);
-        this._applyForward(issPos, issData.velocity, issData.lvlh);
+        this._applyForward(issPos, issData.velocity, delta);
         break;
       case MODES.ORBIT:
         this._updateModelVisibility(true);
-        this._applyOrbit(issPos, issData.velocity);
+        this._applyOrbit(issPos, issData.velocity, delta);
         break;
       case MODES.FREE:
         this._updateModelVisibility(true);
-        // OrbitControls handles its own updates
         this.controls.update();
+        break;
+      case MODES.EXTERIOR:
+        this._updateModelVisibility(true);
+        this._applyExterior(issPos);
         break;
     }
   }
@@ -112,76 +124,115 @@ export class CameraManager {
 
   // ---- Camera Mode Implementations ----
 
-  _applyNadir(issPos, lvlh) {
+  _applyNadir(issPos, lvlh, delta) {
     // Zenith unit vector (away from Earth center)
     const zenith = issPos.clone().normalize();
     this._targetPos.copy(issPos).addScaledVector(zenith, this._nadirZoom);
-    this.camera.position.lerp(this._targetPos, this._lerpAlpha);
+    
+    const alpha = Math.min(1.0, this._lerpAlpha * delta);
+    this.camera.position.lerp(this._targetPos, alpha);
 
     if (lvlh) {
-      // LVLH frame: +Z = zenith (away), -Z = nadir (toward Earth)
-      // Camera naturally looks down -Z, so LVLH orientation directly gives nadir view
-      this.camera.quaternion.slerp(lvlh, this._slerpAlpha);
+      // Camera naturally looks down -Z; LVLH directly provides this orientation
+      const sAlpha = Math.min(1.0, this._slerpAlpha * delta);
+      this.camera.quaternion.slerp(lvlh, sAlpha);
     } else {
-      // Fallback: just look at Earth center
-      this.camera.position.copy(issPos);
-      this.camera.lookAt(0, 0, 0);
+      // Fallback: look at Earth center
+      this._targetQuat.setFromUnitVectors(new THREE.Vector3(0, 0, -1), zenith.clone().negate());
+      this.camera.quaternion.slerp(this._targetQuat, Math.min(1.0, this._slerpAlpha * delta));
     }
   }
 
-  _applyForward(issPos, velocity, lvlh) {
-    // Camera at ISS position, looking in velocity direction (ram)
+  _applyForward(issPos, velocity, delta) {
+    // Camera at ISS position
     this._targetPos.copy(issPos);
-    this.camera.position.lerp(this._targetPos, this._lerpAlpha);
+    const alpha = Math.min(1.0, this._lerpAlpha * delta);
+    this.camera.position.lerp(this._targetPos, alpha);
 
-    if (velocity) {
-      const forward = new THREE.Vector3(velocity.x, velocity.y, velocity.z).normalize();
-      const zenith = issPos.clone().normalize();
+    // RAM direction (velocity vector)
+    const ram = velocity 
+      ? new THREE.Vector3(velocity.x, velocity.y, velocity.z).normalize()
+      : new THREE.Vector3(0, 0, 1);
 
-      // Build orthonormal basis: camera looks along forward, zenith is up
-      const right = forward.clone().cross(zenith).normalize();
-      const up = right.clone().cross(forward).normalize();
+    const zenith = issPos.clone().normalize();
+    
+    // Orthonormal frame: Right = Ram x Zenith
+    const right = new THREE.Vector3().crossVectors(ram, zenith).normalize();
+    // Local Horizontal Forward (tangent to orbital path)
+    const horizontalForward = new THREE.Vector3().crossVectors(zenith, right).normalize();
 
-      // Camera looks in its local -Z; set basis columns (right, up, -forward)
-      const m = new THREE.Matrix4();
-      m.makeBasis(right, up, forward.clone().negate());
-      this._targetQuat.setFromRotationMatrix(m);
+    // Calculate dip angle to horizon: cos(theta) = R / (R + h)
+    const dist = issPos.length();
+    const dip = Math.acos(Math.min(1.0, EARTH_RADIUS_KM / dist));
 
-      this.camera.quaternion.slerp(this._targetQuat, this._slerpAlpha);
-    }
+    // The View Vector (the direction the camera looks)
+    // Points 'dip' degrees below the local horizontal
+    const viewDir = new THREE.Vector3()
+      .addScaledVector(horizontalForward, Math.cos(dip))
+      .addScaledVector(zenith, -Math.sin(dip))
+      .normalize();
+
+    // The 'Up' Vector for the camera
+    const up = new THREE.Vector3().crossVectors(right, viewDir).normalize();
+
+    // Three.js Camera looks down its local -Z axis.
+    // Basis: X=right, Y=up, Z=-viewDir
+    const m = new THREE.Matrix4();
+    m.makeBasis(right, up, viewDir.clone().negate());
+    this._targetQuat.setFromRotationMatrix(m);
+
+    const sAlpha = Math.min(1.0, this._slerpAlpha * delta);
+    this.camera.quaternion.slerp(this._targetQuat, sAlpha);
   }
 
-  _applyOrbit(issPos, velocity) {
-    // Observer positioned 300 km behind ISS (anti-ram) and 100 km above (zenith)
-    // looking back at ISS
+  _applyOrbit(issPos, velocity, delta) {
+    // Observer positioned behind ISS (anti-ram) and above (zenith) looking at ISS
+    const forward = velocity 
+      ? new THREE.Vector3(velocity.x, velocity.y, velocity.z).normalize()
+      : new THREE.Vector3(0, 0, 1);
 
-    if (velocity) {
-      const vel = new THREE.Vector3(
-        velocity.x,
-        velocity.y,
-        velocity.z
-      ).normalize();
+    const zenith = issPos.clone().normalize();
+    
+    // Observer offset: 100 km behind ISS + 30 km above
+    const observerOffset = forward.clone().negate().multiplyScalar(100)
+      .addScaledVector(zenith, 30);
 
-      // Nadir direction (toward Earth)
-      const nadir = issPos.clone().normalize();
-
-      // Observer offset: behind ISS along -ram + above along zenith
-      const observerOffset = vel
-        .clone()
-        .negate()
-        .multiplyScalar(300)
-        .add(nadir.clone().multiplyScalar(100));
-
-      this._targetPos.copy(issPos).add(observerOffset);
-    } else {
-      // Fallback: just move back along Z
-      this._targetPos.copy(issPos).add(new THREE.Vector3(0, 0, 300));
-    }
+    this._targetPos.copy(issPos).add(observerOffset);
 
     // Smooth camera movement
-    this.camera.position.lerp(this._targetPos, 0.02);
+    const alpha = Math.min(1.0, this._lerpAlpha * delta);
+    this.camera.position.lerp(this._targetPos, alpha);
 
-    // Look at ISS
-    this.camera.lookAt(issPos);
+    // Orientation: Look at ISS
+    const lookDir = issPos.clone().sub(this.camera.position).normalize();
+    const m = new THREE.Matrix4();
+    // Use zenith as temporary "up" to build the look-at basis
+    const right = new THREE.Vector3().crossVectors(lookDir, zenith).normalize();
+    const up = new THREE.Vector3().crossVectors(right, lookDir).normalize();
+    m.makeBasis(right, up, lookDir.clone().negate());
+    this._targetQuat.setFromRotationMatrix(m);
+
+    const sAlpha = Math.min(1.0, this._slerpAlpha * delta);
+    this.camera.quaternion.slerp(this._targetQuat, sAlpha);
+  }
+
+  _applyExterior(issPos) {
+    if (!this._extInitialized) {
+      // Place camera 50 m (0.05 km) along zenith from ISS on first entry
+      const zenith = issPos.clone().normalize();
+      this.camera.position.copy(issPos).addScaledVector(zenith, 0.05);
+      this._extControls.target.copy(issPos);
+      this._extControls.update();
+      this._lastIssPos.copy(issPos);
+      this._extInitialized = true;
+      return;
+    }
+
+    // Translate camera by the ISS's movement delta so the view stays anchored
+    const delta = issPos.clone().sub(this._lastIssPos);
+    this.camera.position.add(delta);
+    this._extControls.target.copy(issPos);
+    this._lastIssPos.copy(issPos);
+    this._extControls.update();
   }
 }

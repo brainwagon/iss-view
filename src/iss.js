@@ -96,6 +96,37 @@ export class ISSTracker {
     }
   }
 
+  // Synchronously propagate to a specific date using existing satrec
+  getPropagatedState(date) {
+    if (!this.satrec) return null;
+
+    const posVel = propagate(this.satrec, date);
+    if (!posVel || posVel.position === false) return null;
+
+    const gmst = gstime(date);
+    const geo = eciToGeodetic(posVel.position, gmst);
+
+    const pos3 = eciToThree(posVel.position);
+    const vel3 = eciToThree(posVel.velocity);
+
+    const geodetic = {
+      lat: degreesLat(geo.latitude),
+      lon: degreesLong(geo.longitude),
+      alt: geo.height,
+    };
+    const lvlh = computeLVLHQuaternion(pos3, vel3);
+    const speed = Math.sqrt(vel3.x ** 2 + vel3.y ** 2 + vel3.z ** 2);
+
+    return {
+      position: pos3,
+      geodetic,
+      velocity: vel3,
+      lvlh,
+      speed,
+      source: 'TLE (Sync)',
+    };
+  }
+
   // Called once per tick to update ISS position
   async update() {
     // Re-fetch TLE once per hour to prevent SGP4 accuracy degradation

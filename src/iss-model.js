@@ -103,38 +103,38 @@ export function createProceduralISS(scene) {
     side: THREE.DoubleSide,
   });
 
-  // Main truss (elongated box, 100 km long × 8 km × 8 km)
-  const trussGeo = new THREE.BoxGeometry(100, 8, 8);
+  // Main truss (elongated box, 0.1 km long × 0.005 km × 0.005 km)
+  const trussGeo = new THREE.BoxGeometry(0.1, 0.005, 0.005);
   const trussMesh = new THREE.Mesh(trussGeo, silverMat);
   group.add(trussMesh);
 
   // Modules and segments (small boxes along truss)
   for (let i = -4; i <= 4; i++) {
-    const modGeo = new THREE.BoxGeometry(5, 5, 5);
+    const modGeo = new THREE.BoxGeometry(0.006, 0.006, 0.006);
     const modMesh = new THREE.Mesh(modGeo, silverMat);
-    modMesh.position.x = i * 10;
+    modMesh.position.x = i * 0.01;
     group.add(modMesh);
   }
 
   // Solar panel arrays (pairs at ±X and ±Y positions)
   // Each panel is a large flat surface
-  const panelGeo = new THREE.PlaneGeometry(40, 20);
+  const panelGeo = new THREE.PlaneGeometry(0.04, 0.015);
 
   // Port and starboard solar arrays (±Z)
   for (const sign of [-1, 1]) {
     const pMesh = new THREE.Mesh(panelGeo, solarPanelMat);
-    pMesh.position.set(25, 0, sign * 35);
+    pMesh.position.set(0.025, 0, sign * 0.035);
     pMesh.rotation.y = Math.PI / 2;
     group.add(pMesh);
 
     const sMesh = new THREE.Mesh(panelGeo, solarPanelMat);
-    sMesh.position.set(-25, 0, sign * 35);
+    sMesh.position.set(-0.025, 0, sign * 0.035);
     sMesh.rotation.y = Math.PI / 2;
     group.add(sMesh);
   }
 
   // Radiators (thin flat panels)
-  const radiatorGeo = new THREE.PlaneGeometry(20, 8);
+  const radiatorGeo = new THREE.PlaneGeometry(0.02, 0.008);
   const radiatorMat = new THREE.MeshPhongMaterial({
     color: 0x333333,
     side: THREE.DoubleSide,
@@ -142,7 +142,7 @@ export function createProceduralISS(scene) {
 
   for (let i = -1; i <= 1; i++) {
     const rMesh = new THREE.Mesh(radiatorGeo, radiatorMat);
-    rMesh.position.set(i * 20, 20, 0);
+    rMesh.position.set(i * 0.02, 0.015, 0);
     rMesh.rotation.x = Math.PI / 4;
     group.add(rMesh);
   }

@@ -7,9 +7,10 @@ import { CameraManager, MODES } from './cameras.js';
 import { ISSModel, createProceduralISS } from './iss-model.js';
 import { MapOverlay } from './map.js';
 import { SunObject } from './sun.js';
-import { MoonObject } from './moon.js';
+import { MoonObject, MOON_LAYER } from './moon.js';
 
 const { scene, camera, renderer } = createScene();
+camera.layers.enable(MOON_LAYER);
 const earth = await createEarth(scene);
 const { earthMesh, cloudMesh, atmosMesh } = earth;
 const iss = new ISSTracker();
@@ -37,6 +38,29 @@ let currentData = null;
 
 let fpsFrames = 0;
 let fpsLastUpdate = 0;
+let shadowsEnabled = false;
+
+function setShadowsEnabled(enabled) {
+  shadowsEnabled = enabled;
+  renderer.shadowMap.enabled = enabled;
+  earth.sunLight.castShadow = enabled;
+
+  if (issModel && issModel.group) {
+    issModel.group.traverse((obj) => {
+      if (obj.isMesh) {
+        obj.castShadow = enabled;
+        obj.receiveShadow = enabled;
+      }
+    });
+  }
+
+  // When turning shadows off, restore the distant sun-light placement so
+  // Earth lighting direction stays consistent with the default path.
+  if (!enabled) {
+    earth.sunLight.target.position.set(0, 0, 0);
+    earth.sunLight.target.updateMatrixWorld();
+  }
+}
 
 // Moon position calculation (simplified Meeus, accurate to ~1°)
 // Returns THREE.Vector3 in Three.js world space with magnitude = distance in km
@@ -56,6 +80,34 @@ function getMoonPositionThree(date) {
   const eciZ =  Math.sin(eps) * Math.cos(beta) * Math.sin(lambda) + Math.cos(eps) * Math.sin(beta);
   // ECI → Three.js: threeX=eciX, threeY=eciZ, threeZ=-eciY
   return new THREE.Vector3(eciX, eciZ, -eciY).multiplyScalar(delta);
+}
+
+// Fraction of the sun visible from the ISS, using Earth-as-occluder geometry.
+// Returns 1 in full sunlight, 0 in umbra, smooth transition through penumbra.
+//
+// issPos: ECI position in km (Three.js Vector3-like with x/y/z in the world
+//   frame — but only magnitude matters for angular calcs, so same math works).
+// sunDirWorld: unit vector toward the sun (same frame as issPos).
+const SUN_ANGULAR_RADIUS = Math.asin(696000 / 150_000_000); // ~0.00464 rad
+function sunVisibilityFactor(issPos, sunDirWorld) {
+  const dist = Math.hypot(issPos.x, issPos.y, issPos.z);
+  if (dist < 1) return 1;
+  // Angle (at ISS) between direction-to-Earth-center and direction-to-sun.
+  const invDist = 1 / dist;
+  const toEarthX = -issPos.x * invDist;
+  const toEarthY = -issPos.y * invDist;
+  const toEarthZ = -issPos.z * invDist;
+  const cosAlpha = toEarthX * sunDirWorld.x + toEarthY * sunDirWorld.y + toEarthZ * sunDirWorld.z;
+  const alpha = Math.acos(Math.max(-1, Math.min(1, cosAlpha)));
+
+  const earthAngRad = Math.asin(Math.min(1, 6371 / dist));
+  const sunAngRad = SUN_ANGULAR_RADIUS;
+
+  if (alpha >= earthAngRad + sunAngRad) return 1; // unoccluded
+  if (alpha <= earthAngRad - sunAngRad) return 0; // full umbra
+  // Penumbra: smoothstep over the 2*sunAngRad transition band.
+  const t = (alpha - (earthAngRad - sunAngRad)) / (2 * sunAngRad);
+  return t * t * (3 - 2 * t);
 }
 
 // Sun direction calculation (approximate, accurate to ~1°)
@@ -102,11 +154,16 @@ async function tick() {
   // Update sun direction for day/night lighting
   const sunDir = getSunDirectionECI(now);
   earth.setSunDirection(sunDir);
-  if (moonObject) moonObject.update(getMoonPositionThree(now));
+  const moonPos = getMoonPositionThree(now);
+  if (moonObject) {
+    moonObject.update(moonPos);
+    moonObject.updateSun(sunDir);
+  }
 
   // Update 2D map overlay
   const track = iss.getGroundTrack(now);
-  mapOverlay.update(data.geodetic.lat, data.geodetic.lon, sunDir, gmst, track);
+  const moonDir = moonPos.clone().normalize();
+  mapOverlay.update(data.geodetic.lat, data.geodetic.lon, sunDir, moonDir, gmst, track);
 }
 
 function animate(timestamp) {
@@ -154,6 +211,14 @@ function animate(timestamp) {
   earth.setSunDirection(sunDir);
   if (sunObject) sunObject.update(sunDir);
 
+  // Modulate direct sun intensity by Earth-occlusion visibility from the ISS.
+  // Ambient fill is unchanged (set at scene build, 10% of sun base).
+  const vis = currentData ? sunVisibilityFactor(currentData.position, sunDir) : 1;
+  earth.sunLight.intensity = earth.sunBaseIntensity * vis;
+
+  // The shadow light is repositioned inside pass 2 (re-origined space),
+  // so no world-space light placement is needed here.
+
   // Render logic
   const mode = cameraManager.mode;
   const showModel = (mode === MODES.ORBIT || mode === MODES.FREE || mode === MODES.EXTERIOR);
@@ -193,7 +258,40 @@ function animate(timestamp) {
     cloudMesh.visible = false;
     atmosMesh.visible = false;
     if (issModel) issModel.setVisible(true);
+
+    // Re-origin for pass 2 when self-shadowing. The ISS sits ~6700 km from
+    // world origin, so shadow-map view/projection math loses meaningful
+    // precision at the model's 0.1 km scale (shadow swim). Translate the
+    // ISS, camera, and sun light so the ISS is at the origin for this
+    // render only, then restore. The main-pass 2 frustum is already
+    // camera-relative so visible output is unchanged.
+    let savedIssPos = null, savedCamPos = null, savedLightPos = null, savedLightTargetPos = null;
+    if (shadowsEnabled && currentData && issModel && issModel.group) {
+      const issWorld = new THREE.Vector3(
+        currentData.position.x, currentData.position.y, currentData.position.z
+      );
+      savedIssPos = issModel.group.position.clone();
+      savedCamPos = camera.position.clone();
+      savedLightPos = earth.sunLight.position.clone();
+      savedLightTargetPos = earth.sunLight.target.position.clone();
+
+      issModel.group.position.set(0, 0, 0);
+      camera.position.sub(issWorld);
+      earth.sunLight.target.position.set(0, 0, 0);
+      earth.sunLight.position.set(sunDir.x, sunDir.y, sunDir.z); // 1 km along sunDir
+      earth.sunLight.target.updateMatrixWorld();
+    }
+
     renderer.render(scene, camera);
+
+    if (savedIssPos) {
+      issModel.group.position.copy(savedIssPos);
+      camera.position.copy(savedCamPos);
+      earth.sunLight.position.copy(savedLightPos);
+      earth.sunLight.target.position.copy(savedLightTargetPos);
+      earth.sunLight.target.updateMatrixWorld();
+    }
+
     earthMesh.visible = true;
     cloudMesh.visible = cloudsWereVisible;
     atmosMesh.visible = true;
@@ -256,6 +354,10 @@ chkMap.addEventListener('change', (e) => {
   mapOverlay.setVisible(e.target.checked);
 });
 mapOverlay.setVisible(chkMap.checked); // apply default (on)
+const chkShadows = document.getElementById('chk-shadows');
+chkShadows.addEventListener('change', (e) => {
+  setShadowsEnabled(e.target.checked);
+});
 
 // Keyboard shortcuts for camera modes
 document.addEventListener('keydown', (e) => {

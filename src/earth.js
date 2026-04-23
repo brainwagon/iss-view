@@ -176,11 +176,30 @@ export async function createEarth(scene) {
   console.log('[Earth] Star field created');
 
   // ---- Sun light ----
-  const sunLight = new THREE.DirectionalLight(0xfff4e0, 2.0);
+  const SUN_INTENSITY = 2.0;
+  const sunLight = new THREE.DirectionalLight(0xfff4e0, SUN_INTENSITY);
   sunLight.castShadow = false;
+  // Shadow camera frustum: tight ortho box sized slightly larger than the
+  // ISS (~0.11 km). Only activated when ISS self-shadowing is enabled;
+  // app.js repositions the light to follow the ISS each frame.
+  sunLight.shadow.camera.left = -0.1;
+  sunLight.shadow.camera.right = 0.1;
+  sunLight.shadow.camera.top = 0.1;
+  sunLight.shadow.camera.bottom = -0.1;
+  sunLight.shadow.camera.near = 0.01;
+  sunLight.shadow.camera.far = 2;
+  sunLight.shadow.mapSize.set(2048, 2048);
+  // Pass 2 re-origins the scene around the ISS before rendering, so shadow
+  // math runs in local coordinates — we can use small bias values without
+  // acne.
+  sunLight.shadow.bias = -0.00005;
+  sunLight.shadow.normalBias = 0.001;
   scene.add(sunLight);
+  scene.add(sunLight.target);
 
-  const ambient = new THREE.AmbientLight(0x111111, 0.5);
+  // Ambient fill at 10% of sun intensity (sun-colored), unaffected by
+  // eclipse/umbra — keeps the ISS readable in full shadow.
+  const ambient = new THREE.AmbientLight(0xfff4e0, SUN_INTENSITY * 0.1);
   scene.add(ambient);
 
   return {
@@ -189,6 +208,7 @@ export async function createEarth(scene) {
     atmosMesh,
     stars,
     sunLight,
+    sunBaseIntensity: SUN_INTENSITY,
     setSunDirection(dir) {
       earthMat.uniforms.sunDirection.value.copy(dir);
       sunLight.position.copy(dir.clone().multiplyScalar(150_000_000));

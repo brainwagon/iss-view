@@ -94,7 +94,7 @@ A client-side HTML/JavaScript application that tracks the International Space St
 - Realistic solar panel orientation matching scene sun direction
 
 **Files to Create**:
-- `assets/iss.glb` — manually download from NASA and place here
+- `assets/iss-high.glb` — manually download from NASA and place here
 - `src/iss-model.js` — GLTFLoader wrapper + procedural fallback
 
 **Model Source**:
@@ -183,7 +183,7 @@ iss-view/
   │   ├── cameras.js          # (Phase 3) Multi-mode camera manager
   │   └── iss-model.js        # (Phase 4) ISS 3D model loader
   ├── assets/
-  │   └── iss.glb             # (Phase 4) NASA ISS model
+  │   └── iss-high.glb             # (Phase 4) NASA ISS model
   └── .claude/
       └── plans/
           └── create-a-simple-html-javascript-compressed-pebble.md  # Full implementation plan

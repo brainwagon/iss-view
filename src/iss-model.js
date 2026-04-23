@@ -11,7 +11,7 @@ export class ISSModel {
     this.visible = false;
   }
 
-  async load(url = './assets/iss.glb') {
+  async load(url = './assets/iss-high.glb') {
     return new Promise((resolve, reject) => {
       const dracoLoader = new DRACOLoader();
       dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/libs/draco/');
@@ -24,12 +24,27 @@ export class ISSModel {
         (gltf) => {
           console.log('[ISS-Model] GLB loaded successfully');
 
-          // Scale: NASA model is in meters, convert to km (0.001 scale)
-          gltf.scene.scale.setScalar(0.001);
+          // 1. Auto-scale to realistic ISS dimensions first:
+          // The real ISS is ~109m x 73m. We'll scale it so its largest 
+          // dimension is 0.109 km (1 units = 1 km).
+          const box = new THREE.Box3().setFromObject(gltf.scene);
+          const size = box.getSize(new THREE.Vector3());
+          const maxDim = Math.max(size.x, size.y, size.z);
+          
+          if (maxDim > 0) {
+            const targetScale = 0.109 / maxDim;
+            gltf.scene.scale.setScalar(targetScale);
+            console.log(`[ISS-Model] Auto-scaled from ${maxDim.toFixed(2)} units to 0.109 km (scale: ${targetScale.toExponential(4)})`);
+          }
 
-          // Apply corrective rotation if needed
-          // The NASA model may have different axis conventions
-          // Adjust these rotations after visual inspection
+          // 2. Center the model geometry AFTER scaling
+          // We re-compute the box to get the scaled dimensions and center
+          const scaledBox = new THREE.Box3().setFromObject(gltf.scene);
+          const center = scaledBox.getCenter(new THREE.Vector3());
+          gltf.scene.position.sub(center);
+
+          // 3. Apply corrective rotation
+          // This rotates around the newly centered origin
           gltf.scene.rotation.x = -Math.PI / 2;
 
           // Add to our group

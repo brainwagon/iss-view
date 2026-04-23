@@ -95,7 +95,7 @@ index.html                 ← shell + importmap + HUD
   ├─ src/cameras.js       ← CameraManager (4 modes + smooth transitions)
   └─ src/iss-model.js     ← ISS GLB loader + procedural fallback
   
-assets/iss.glb            ← NASA ISS 3D model (user-provided)
+assets/iss-high.glb            ← NASA ISS 3D model (user-provided)
 ```
 
 ### Data Flow

@@ -73,17 +73,17 @@
     <canvas id="map-canvas" width="360" height="180"></canvas>
   </div>
   <div id="viz-controls">
-    <label><input type="checkbox" id="chk-dayonly" checked> Day only (no night side)</label>
-    <label><input type="checkbox" id="chk-clouds"> Show clouds</label>
+    <label><input type="checkbox" id="chk-dayonly"> Day only (no night side)</label>
+    <label><input type="checkbox" id="chk-clouds" checked> Show clouds</label>
     <label><input type="checkbox" id="chk-map" checked> Show map</label>
-    <label><input type="checkbox" id="chk-shadows"> ISS self-shadows</label>
+    <label><input type="checkbox" id="chk-shadows" checked> ISS self-shadows</label>
   </div>
   <div id="cam-switcher">
-    <button data-cam="nadir">NADIR</button>
-    <button data-cam="forward">FORWARD</button>
     <button data-cam="orbit">ORBIT</button>
-    <button data-cam="free">FREE</button>
     <button data-cam="exterior">EXTERIOR</button>
+    <button data-cam="forward">FORWARD</button>
+    <button data-cam="nadir">NADIR</button>
+    <button data-cam="free">FREE</button>
   </div>
   <script type="module" src="src/app.js"></script>
 </body>

@@ -14,7 +14,7 @@ export class CameraManager {
   constructor(camera, renderer) {
     this.camera = camera;
     this.renderer = renderer;
-    this.mode = MODES.NADIR;
+    this.mode = MODES.ORBIT;
 
     // OrbitControls for FREE mode (Earth-centered)
     this.controls = new OrbitControls(camera, renderer.domElement);

@@ -197,9 +197,8 @@ export async function createEarth(scene) {
   scene.add(sunLight);
   scene.add(sunLight.target);
 
-  // Ambient fill at 10% of sun intensity (sun-colored), unaffected by
-  // eclipse/umbra — keeps the ISS readable in full shadow.
-  const ambient = new THREE.AmbientLight(0xfff4e0, SUN_INTENSITY * 0.1);
+  // Ambient fill — keeps the ISS faintly readable in full shadow.
+  const ambient = new THREE.AmbientLight(0xfff4e0, 0.05);
   scene.add(ambient);
 
   return {

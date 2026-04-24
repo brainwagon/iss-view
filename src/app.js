@@ -320,6 +320,8 @@ function animate(timestamp) {
       issModel = createProceduralISS(scene);
     }
     cameraManager.setISSModel(issModel);
+    setShadowsEnabled(document.getElementById('chk-shadows').checked);
+    updateCameraButtons();
 
     console.log('[App] Fetching initial ISS position...');
     await tick();

@@ -44,13 +44,41 @@ const dayNightFrag = `
   }
 `;
 
-// Atmosphere glow shader
+// Cloud layer shader: lit on the day side, nearly black on the night side.
+// Uses normal alpha blending so dark clouds occlude city lights behind them.
+const cloudVert = dayNightVert;
+const cloudFrag = `
+  uniform sampler2D cloudTex;
+  uniform vec3 sunDirection;
+  uniform float dayOnly;
+  uniform float opacity;
+  uniform float nightBrightness;
+
+  varying vec3 vNormal;
+  varying vec2 vUv;
+
+  void main() {
+    float cosAngle = dot(normalize(vNormal), normalize(sunDirection));
+    float lit = mix(smoothstep(-0.15, 0.15, cosAngle), 1.0, dayOnly);
+
+    vec3 cloud = texture2D(cloudTex, vUv).rgb;
+    float alpha = max(max(cloud.r, cloud.g), cloud.b) * opacity;
+
+    vec3 color = cloud * mix(nightBrightness, 1.0, lit);
+    gl_FragColor = vec4(color, alpha);
+  }
+`;
+
+// Atmosphere glow shader. Only lit portions of the limb glow — the night
+// limb fades to black so we don't paint a blue ring around the dark side.
 const atmosVert = `
   varying vec3 vNormal;
+  varying vec3 vWorldNormal;
   varying vec3 vViewDir;
 
   void main() {
     vNormal = normalize(normalMatrix * normal);
+    vWorldNormal = normalize(mat3(modelMatrix) * normal);
     vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
     vViewDir = normalize(-mvPos.xyz);
     gl_Position = projectionMatrix * mvPos;
@@ -58,13 +86,19 @@ const atmosVert = `
 `;
 
 const atmosFrag = `
+  uniform vec3 sunDirection;
+  uniform float dayOnly;
+
   varying vec3 vNormal;
+  varying vec3 vWorldNormal;
   varying vec3 vViewDir;
 
   void main() {
     float rim = 1.0 - abs(dot(vNormal, vViewDir));
     float glow = pow(rim, 3.0) * 0.8;
-    gl_FragColor = vec4(0.2, 0.5, 1.0, glow);
+    float cosAngle = dot(normalize(vWorldNormal), normalize(sunDirection));
+    float lit = mix(smoothstep(-0.1, 0.25, cosAngle), 1.0, dayOnly);
+    gl_FragColor = vec4(0.2, 0.5, 1.0, glow * lit);
   }
 `;
 
@@ -94,6 +128,7 @@ export async function createEarth(scene) {
 
   dayTex.colorSpace = THREE.SRGBColorSpace;
   nightTex.colorSpace = THREE.SRGBColorSpace;
+  cloudTex.colorSpace = THREE.SRGBColorSpace;
 
   // ---- Earth sphere with day/night shader ----
   const earthMat = new THREE.ShaderMaterial({
@@ -113,13 +148,18 @@ export async function createEarth(scene) {
   console.log('[Earth] Earth sphere created');
 
   // ---- Cloud layer ----
-  const cloudMat = new THREE.MeshPhongMaterial({
-    map: cloudTex,
+  const cloudMat = new THREE.ShaderMaterial({
+    uniforms: {
+      cloudTex: { value: cloudTex },
+      sunDirection: { value: new THREE.Vector3(1, 0, 0) },
+      dayOnly: { value: 0.0 },
+      opacity: { value: 0.85 },
+      nightBrightness: { value: 0.02 },
+    },
+    vertexShader: cloudVert,
+    fragmentShader: cloudFrag,
     transparent: true,
-    opacity: 0.6,
     depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    emissive: 0x333333,
   });
   const cloudMesh = new THREE.Mesh(
     new THREE.SphereGeometry(EARTH_RADIUS_KM + 8, 128, 64),
@@ -130,7 +170,10 @@ export async function createEarth(scene) {
 
   // ---- Atmosphere glow ----
   const atmosMat = new THREE.ShaderMaterial({
-    uniforms: {},
+    uniforms: {
+      sunDirection: { value: new THREE.Vector3(1, 0, 0) },
+      dayOnly: { value: 0.0 },
+    },
     vertexShader: atmosVert,
     fragmentShader: atmosFrag,
     transparent: true,
@@ -198,7 +241,7 @@ export async function createEarth(scene) {
   scene.add(sunLight.target);
 
   // Ambient fill — keeps the ISS faintly readable in full shadow.
-  const ambient = new THREE.AmbientLight(0xfff4e0, 0.05);
+  const ambient = new THREE.AmbientLight(0xfff4e0, 0.15);
   scene.add(ambient);
 
   return {
@@ -210,10 +253,15 @@ export async function createEarth(scene) {
     sunBaseIntensity: SUN_INTENSITY,
     setSunDirection(dir) {
       earthMat.uniforms.sunDirection.value.copy(dir);
+      cloudMat.uniforms.sunDirection.value.copy(dir);
+      atmosMat.uniforms.sunDirection.value.copy(dir);
       sunLight.position.copy(dir.clone().multiplyScalar(150_000_000));
     },
     setDayOnly(enabled) {
-      earthMat.uniforms.dayOnly.value = enabled ? 1.0 : 0.0;
+      const v = enabled ? 1.0 : 0.0;
+      earthMat.uniforms.dayOnly.value = v;
+      cloudMat.uniforms.dayOnly.value = v;
+      atmosMat.uniforms.dayOnly.value = v;
     },
     setCloudsVisible(visible) {
       cloudMesh.visible = visible;

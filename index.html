@@ -43,6 +43,44 @@
       overflow: hidden; background: #000;
     }
     #map-canvas { display: block; width: 100%; height: 100%; }
+    #btn-fullscreen {
+      position: fixed; top: 16px; right: 16px;
+      padding: 6px 12px; background: #1a1a1a; color: #0f0;
+      border: 1px solid #0f0; border-radius: 3px; cursor: pointer;
+      font-family: monospace; font-size: 11px;
+      transition: all 0.2s;
+    }
+    #btn-fullscreen:hover { background: #0f0; color: #000; }
+    #loader-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0, 0, 0, 0.85);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      color: #0f0; font-family: monospace;
+      z-index: 1000;
+      transition: opacity 0.3s;
+    }
+    #loader-overlay.hidden { opacity: 0; pointer-events: none; }
+    #loader-label { font-size: 14px; margin-bottom: 14px; }
+    #loader-bar-outer {
+      width: 320px; height: 10px;
+      border: 1px solid #0f0; border-radius: 2px;
+      overflow: hidden; background: #000;
+    }
+    #loader-bar-inner {
+      height: 100%; width: 0%;
+      background: #0f0;
+      transition: width 0.15s linear;
+    }
+    #loader-bar-outer.indeterminate #loader-bar-inner {
+      width: 30%;
+      animation: loader-slide 1.2s ease-in-out infinite;
+    }
+    @keyframes loader-slide {
+      0%   { transform: translateX(-120%); }
+      100% { transform: translateX(440%); }
+    }
+    #loader-detail { margin-top: 10px; font-size: 11px; color: #7f7; }
   </style>
   <script type="importmap">
   {
@@ -55,18 +93,24 @@
   </script>
 </head>
 <body>
+  <div id="loader-overlay">
+    <div id="loader-label">Loading ISS model...</div>
+    <div id="loader-bar-outer"><div id="loader-bar-inner"></div></div>
+    <div id="loader-detail">&nbsp;</div>
+  </div>
   <div id="hud">
     <div>LAT: <span id="hud-lat">--</span>°</div>
     <div>LON: <span id="hud-lon">--</span>°</div>
     <div>ALT: <span id="hud-alt">--</span> km</div>
     <div>VEL: <span id="hud-vel">--</span> km/s</div>
     <div>SRC: <span id="hud-src">--</span></div>
+    <div>SUN: <span id="hud-sun">--</span>%</div>
     <div style="margin-top:6px;padding-top:6px;border-top:1px solid #0f0;">
       CAM: <span id="hud-mode">NADIR</span>
     </div>
     <div>FPS: <span id="hud-fps">--</span></div>
     <div style="margin-top:8px;font-size:11px;color:#888;">
-      [N]adir [F]orward [O]rbit [C]Free [E]xterior [M]ap
+      [N]adir [F]orward [O]rbit [C]Free [E]xterior [M]ap [\]Fullscreen
     </div>
   </div>
   <div id="map-panel">
@@ -85,6 +129,7 @@
     <button data-cam="nadir">NADIR</button>
     <button data-cam="free">FREE</button>
   </div>
+  <button id="btn-fullscreen" title="Toggle fullscreen (\)">FULLSCREEN</button>
   <script type="module" src="src/app.js"></script>
 </body>
 </html>

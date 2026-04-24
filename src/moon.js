@@ -1,8 +1,32 @@
 import * as THREE from 'three';
 
-// Moon lives on its own layer so its illumination is independent of the
-// ISS-eclipse-modulated sunLight. The main camera enables this layer.
+// Moon lives on its own layer for visibility, and shades itself in a custom
+// shader using a uniform sun direction — no scene light is used, so nothing
+// the moon does can ever illuminate the ISS or Earth.
 export const MOON_LAYER = 1;
+
+const moonVert = `
+  varying vec3 vWorldNormal;
+
+  void main() {
+    vWorldNormal = normalize(mat3(modelMatrix) * normal);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const moonFrag = `
+  uniform vec3 sunDirection;
+  uniform vec3 baseColor;
+  uniform float ambient;
+
+  varying vec3 vWorldNormal;
+
+  void main() {
+    float cosAngle = max(0.0, dot(normalize(vWorldNormal), normalize(sunDirection)));
+    vec3 color = baseColor * (ambient + (1.0 - ambient) * cosAngle);
+    gl_FragColor = vec4(color, 1.0);
+  }
+`;
 
 function makeGlowTexture() {
   const canvas = document.createElement('canvas');
@@ -22,13 +46,19 @@ export class MoonObject {
   constructor(scene, camera) {
     this._camera = camera;
 
+    this._mat = new THREE.ShaderMaterial({
+      uniforms: {
+        sunDirection: { value: new THREE.Vector3(1, 0, 0) },
+        baseColor: { value: new THREE.Color(0x999999) },
+        ambient: { value: 0.02 },
+      },
+      vertexShader: moonVert,
+      fragmentShader: moonFrag,
+    });
+
     this._mesh = new THREE.Mesh(
       new THREE.SphereGeometry(1737, 32, 16),
-      new THREE.MeshStandardMaterial({
-        color: 0x999999,
-        roughness: 0.9,
-        metalness: 0.0,
-      })
+      this._mat
     );
 
     this._glow = new THREE.Mesh(
@@ -46,15 +76,6 @@ export class MoonObject {
     this._mesh.layers.set(MOON_LAYER);
     this._glow.layers.set(MOON_LAYER);
 
-    // Dedicated sun light for the moon, never modulated by ISS umbra.
-    // Positioned at scene origin + sunDir*(large) on update() so the moon
-    // sees parallel rays from the real sun direction. Target at origin is
-    // fine because DirectionalLight only cares about (target - position).
-    this._sunLight = new THREE.DirectionalLight(0xfff4e0, 2.0);
-    this._sunLight.layers.set(MOON_LAYER);
-    scene.add(this._sunLight);
-    scene.add(this._sunLight.target);
-
     scene.add(this._mesh);
     scene.add(this._glow);
   }
@@ -67,8 +88,6 @@ export class MoonObject {
 
   // Call each frame with the world-space sun direction unit vector.
   updateSun(sunDirWorld) {
-    this._sunLight.position.copy(sunDirWorld).multiplyScalar(1_000_000);
-    this._sunLight.target.position.set(0, 0, 0);
-    this._sunLight.target.updateMatrixWorld();
+    this._mat.uniforms.sunDirection.value.copy(sunDirWorld);
   }
 }

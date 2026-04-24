@@ -31,6 +31,7 @@ const hudVel = document.getElementById('hud-vel');
 const hudSrc = document.getElementById('hud-src');
 const hudMode = document.getElementById('hud-mode');
 const hudFps = document.getElementById('hud-fps');
+const hudSun = document.getElementById('hud-sun');
 
 let lastTick = 0;
 const TICK_MS = 1000; // ISS position update interval
@@ -215,6 +216,7 @@ function animate(timestamp) {
   // Ambient fill is unchanged (set at scene build, 10% of sun base).
   const vis = currentData ? sunVisibilityFactor(currentData.position, sunDir) : 1;
   earth.sunLight.intensity = earth.sunBaseIntensity * vis;
+  hudSun.textContent = (vis * 100).toFixed(0);
 
   // The shadow light is repositioned inside pass 2 (re-origined space),
   // so no world-space light placement is needed here.
@@ -313,12 +315,30 @@ function animate(timestamp) {
 
     console.log('[App] Loading ISS 3D model...');
     issModel = new ISSModel(scene);
+    const loaderOverlay = document.getElementById('loader-overlay');
+    const loaderBarOuter = document.getElementById('loader-bar-outer');
+    const loaderBarInner = document.getElementById('loader-bar-inner');
+    const loaderDetail = document.getElementById('loader-detail');
     try {
-      await issModel.load();
+      await issModel.load('./assets/iss-high.glb', (xhr) => {
+        const mb = (xhr.loaded / 1_048_576).toFixed(1);
+        if (xhr.total > 0) {
+          const pct = (xhr.loaded / xhr.total) * 100;
+          loaderBarOuter.classList.remove('indeterminate');
+          loaderBarInner.style.width = pct.toFixed(1) + '%';
+          const totalMb = (xhr.total / 1_048_576).toFixed(1);
+          loaderDetail.textContent = `${mb} / ${totalMb} MB (${pct.toFixed(0)}%)`;
+        } else {
+          loaderBarOuter.classList.add('indeterminate');
+          loaderDetail.textContent = `${mb} MB`;
+        }
+      });
     } catch (err) {
       console.warn('[App] GLB model load failed, using procedural fallback:', err.message);
       issModel = createProceduralISS(scene);
     }
+    loaderOverlay.classList.add('hidden');
+    setTimeout(() => loaderOverlay.remove(), 400);
     cameraManager.setISSModel(issModel);
     setShadowsEnabled(document.getElementById('chk-shadows').checked);
     updateCameraButtons();
@@ -331,6 +351,7 @@ function animate(timestamp) {
     const initNow = new Date();
     sunObject.update(getSunDirectionECI(initNow));
     moonObject.update(getMoonPositionThree(initNow));
+    moonObject.updateSun(getSunDirectionECI(initNow));
 
     console.log('[App] Starting animation loop...');
     animate(0);
@@ -380,7 +401,38 @@ document.addEventListener('keydown', (e) => {
     chk.checked = !chk.checked;
     mapOverlay.setVisible(chk.checked);
   }
+  if (key === '\\') {
+    toggleFullscreen();
+  }
+  if (key === 'l') {
+    const lights = [];
+    scene.traverse((o) => { if (o.isLight) lights.push(o); });
+    console.group('[Debug] Lights in scene');
+    for (const l of lights) {
+      console.log({
+        type: l.type,
+        intensity: l.intensity,
+        color: '#' + l.color.getHexString(),
+        layersMask: l.layers.mask,
+        position: l.position ? l.position.toArray().map((v) => v.toFixed(1)) : null,
+      });
+    }
+    console.log('ISS group layers mask:', issModel && issModel.group ? issModel.group.layers.mask : 'n/a');
+    console.log('earth.sunLight.intensity:', earth.sunLight.intensity);
+    console.groupEnd();
+  }
 });
+
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch((err) => {
+      console.warn('[App] Fullscreen request failed:', err.message);
+    });
+  } else {
+    document.exitFullscreen();
+  }
+}
+document.getElementById('btn-fullscreen').addEventListener('click', toggleFullscreen);
 
 // Camera switcher buttons
 function updateCameraButtons() {

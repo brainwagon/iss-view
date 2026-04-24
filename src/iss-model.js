@@ -12,7 +12,7 @@ export class ISSModel {
     this.sizeKm = 0.109;
   }
 
-  async load(url = './assets/iss-high.glb') {
+  async load(url = './assets/iss-high.glb', onProgress = null) {
     return new Promise((resolve, reject) => {
       const dracoLoader = new DRACOLoader();
       dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/libs/draco/');
@@ -73,7 +73,9 @@ export class ISSModel {
           console.log('[ISS-Model] Model ready for display');
           resolve(this);
         },
-        undefined,
+        (xhr) => {
+          if (onProgress) onProgress(xhr);
+        },
         (err) => {
           console.error('[ISS-Model] Failed to load GLB:', err.message);
           reject(err);

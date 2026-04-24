@@ -28,16 +28,28 @@
     }
     #cam-switcher button:hover { background: #0f0; color: #000; }
     #cam-switcher button.active { background: #0f0; color: #000; font-weight: bold; }
-    #viz-controls {
+    #right-stack {
       position: fixed; bottom: 16px; right: 16px;
+      display: flex; flex-direction: column; gap: 10px;
+      align-items: flex-end;
+    }
+    #viz-controls {
       background: rgba(0, 0, 0, 0.7); padding: 10px 14px; border-radius: 4px;
       border: 1px solid #0f0; color: #0f0; font-size: 12px;
       display: flex; flex-direction: column; gap: 6px;
     }
     #viz-controls label { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
     #viz-controls input[type="checkbox"] { accent-color: #0f0; width: 13px; height: 13px; cursor: pointer; }
+    #viz-controls hr { border: none; border-top: 1px solid rgba(0,255,0,0.35); margin: 4px 0; }
+    #viz-controls .slider-row {
+      display: grid; grid-template-columns: 64px 1fr 36px;
+      align-items: center; gap: 8px; font-size: 11px;
+    }
+    #viz-controls .slider-row input[type="range"] {
+      accent-color: #0f0; width: 100%;
+    }
+    #viz-controls .slider-row .val { text-align: right; color: #7f7; }
     #map-panel {
-      position: fixed; bottom: 110px; right: 16px;
       width: 360px; height: 180px;
       border: 1px solid rgba(0, 255, 0, 0.5); border-radius: 4px;
       overflow: hidden; background: #000;
@@ -113,6 +125,7 @@
       [N]adir [F]orward [O]rbit [C]Free [E]xterior [M]ap [\]Fullscreen
     </div>
   </div>
+  <div id="right-stack">
   <div id="map-panel">
     <canvas id="map-canvas" width="360" height="180"></canvas>
   </div>
@@ -121,6 +134,28 @@
     <label><input type="checkbox" id="chk-clouds" checked> Show clouds</label>
     <label><input type="checkbox" id="chk-map" checked> Show map</label>
     <label><input type="checkbox" id="chk-shadows" checked> ISS self-shadows</label>
+    <hr>
+    <div class="slider-row">
+      <span>Day bright</span>
+      <input type="range" id="sld-day-b" min="0.1" max="3" step="0.05" value="1.0">
+      <span class="val" id="val-day-b">1.00</span>
+    </div>
+    <div class="slider-row">
+      <span>Day gamma</span>
+      <input type="range" id="sld-day-g" min="0.4" max="2.5" step="0.05" value="1.0">
+      <span class="val" id="val-day-g">1.00</span>
+    </div>
+    <div class="slider-row">
+      <span>Night bright</span>
+      <input type="range" id="sld-night-b" min="0.1" max="5" step="0.05" value="2.2">
+      <span class="val" id="val-night-b">2.20</span>
+    </div>
+    <div class="slider-row">
+      <span>Night gamma</span>
+      <input type="range" id="sld-night-g" min="0.4" max="2.5" step="0.05" value="0.8">
+      <span class="val" id="val-night-g">0.80</span>
+    </div>
+  </div>
   </div>
   <div id="cam-switcher">
     <button data-cam="orbit">ORBIT</button>

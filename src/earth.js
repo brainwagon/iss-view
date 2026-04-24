@@ -28,19 +28,27 @@ const dayNightFrag = `
   uniform sampler2D nightTex;
   uniform vec3 sunDirection;
   uniform float dayOnly;
+  uniform float dayBrightness;
+  uniform float dayGamma;
+  uniform float nightBrightness;
+  uniform float nightGamma;
 
   varying vec3 vNormal;
   varying vec2 vUv;
+
+  vec3 tone(vec3 c, float brightness, float gamma) {
+    return pow(max(c, 0.0), vec3(1.0 / gamma)) * brightness;
+  }
 
   void main() {
     float cosAngle = dot(normalize(vNormal), normalize(sunDirection));
     // smoothstep: terminator zone from -0.15 to +0.15
     float blend = mix(smoothstep(-0.15, 0.15, cosAngle), 1.0, dayOnly);
 
-    vec4 day = texture2D(dayTex, vUv);
-    vec4 night = texture2D(nightTex, vUv);
+    vec3 day = tone(texture2D(dayTex, vUv).rgb, dayBrightness, dayGamma);
+    vec3 night = tone(texture2D(nightTex, vUv).rgb, nightBrightness, nightGamma);
 
-    gl_FragColor = mix(night, day, blend);
+    gl_FragColor = vec4(mix(night, day, blend), 1.0);
   }
 `;
 
@@ -137,6 +145,10 @@ export async function createEarth(scene) {
       nightTex: { value: nightTex },
       sunDirection: { value: new THREE.Vector3(1, 0, 0) },
       dayOnly: { value: 0.0 },
+      dayBrightness: { value: 1.0 },
+      dayGamma: { value: 1.0 },
+      nightBrightness: { value: 2.2 },
+      nightGamma: { value: 0.8 },
     },
     vertexShader: dayNightVert,
     fragmentShader: dayNightFrag,
@@ -265,6 +277,14 @@ export async function createEarth(scene) {
     },
     setCloudsVisible(visible) {
       cloudMesh.visible = visible;
+    },
+    setDayTone(brightness, gamma) {
+      earthMat.uniforms.dayBrightness.value = brightness;
+      earthMat.uniforms.dayGamma.value = gamma;
+    },
+    setNightTone(brightness, gamma) {
+      earthMat.uniforms.nightBrightness.value = brightness;
+      earthMat.uniforms.nightGamma.value = gamma;
     },
     // Rotate Earth and Cloud layers to match real sidereal time (GMST in radians)
     // Three.js and ECI mappings require earthMesh to rotate by exactly +gmst

@@ -377,6 +377,36 @@ chkMap.addEventListener('change', (e) => {
   mapOverlay.setVisible(e.target.checked);
 });
 mapOverlay.setVisible(chkMap.checked); // apply default (on)
+function wireToneSlider(sliderId, valueId, apply) {
+  const slider = document.getElementById(sliderId);
+  const label = document.getElementById(valueId);
+  const update = () => {
+    const v = parseFloat(slider.value);
+    label.textContent = v.toFixed(2);
+    apply(v);
+  };
+  slider.addEventListener('input', update);
+  update();
+}
+const toneState = {
+  dayB: 1.0, dayG: 1.0, nightB: 2.2, nightG: 0.8,
+};
+wireToneSlider('sld-day-b', 'val-day-b', (v) => {
+  toneState.dayB = v;
+  earth.setDayTone(toneState.dayB, toneState.dayG);
+});
+wireToneSlider('sld-day-g', 'val-day-g', (v) => {
+  toneState.dayG = v;
+  earth.setDayTone(toneState.dayB, toneState.dayG);
+});
+wireToneSlider('sld-night-b', 'val-night-b', (v) => {
+  toneState.nightB = v;
+  earth.setNightTone(toneState.nightB, toneState.nightG);
+});
+wireToneSlider('sld-night-g', 'val-night-g', (v) => {
+  toneState.nightG = v;
+  earth.setNightTone(toneState.nightB, toneState.nightG);
+});
 const chkShadows = document.getElementById('chk-shadows');
 chkShadows.addEventListener('change', (e) => {
   setShadowsEnabled(e.target.checked);

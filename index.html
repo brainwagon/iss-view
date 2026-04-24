@@ -8,6 +8,7 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #000; overflow: hidden; font-family: monospace; }
     canvas { display: block; }
+    #webgl-canvas { position: fixed; top: 0; left: 0; z-index: 0; }
     #hud {
       position: fixed; top: 16px; left: 16px;
       color: #0f0; font-size: 13px;
@@ -15,10 +16,12 @@
       border: 1px solid #0f0;
       pointer-events: none; line-height: 1.8;
       font-variant-numeric: tabular-nums;
+      z-index: 10;
     }
     #cam-switcher {
       position: fixed; bottom: 16px; left: 16px;
       display: flex; gap: 8px;
+      z-index: 10;
     }
     #cam-switcher button {
       padding: 6px 12px; background: #1a1a1a; color: #0f0;
@@ -32,6 +35,7 @@
       position: fixed; bottom: 16px; right: 16px;
       display: flex; flex-direction: column; gap: 10px;
       align-items: flex-end;
+      z-index: 10;
     }
     #viz-controls {
       background: rgba(0, 0, 0, 0.7); padding: 10px 14px; border-radius: 4px;
@@ -55,14 +59,72 @@
       overflow: hidden; background: #000;
     }
     #map-canvas { display: block; width: 100%; height: 100%; }
-    #btn-fullscreen {
+    #top-right-btns {
       position: fixed; top: 16px; right: 16px;
+      display: flex; gap: 6px;
+      z-index: 10;
+    }
+    #top-right-btns button {
       padding: 6px 12px; background: #1a1a1a; color: #0f0;
       border: 1px solid #0f0; border-radius: 3px; cursor: pointer;
       font-family: monospace; font-size: 11px;
       transition: all 0.2s;
     }
-    #btn-fullscreen:hover { background: #0f0; color: #000; }
+    #top-right-btns button:hover { background: #0f0; color: #000; }
+    #viz-controls details { border: none; }
+    #viz-controls details > summary {
+      cursor: pointer; user-select: none; font-size: 11px;
+      list-style: none; padding: 2px 0; color: #0f0;
+    }
+    #viz-controls details > summary::-webkit-details-marker { display: none; }
+    #viz-controls details > summary::before {
+      content: '▸ '; display: inline-block; transition: transform 0.15s;
+    }
+    #viz-controls details[open] > summary::before { transform: rotate(90deg); }
+    body.ui-hidden #hud,
+    body.ui-hidden #cam-switcher,
+    body.ui-hidden #right-stack,
+    body.ui-hidden #map-panel,
+    body.ui-hidden #viz-controls,
+    body.ui-hidden #btn-fullscreen { display: none; }
+    @media (max-width: 640px), (max-height: 500px) {
+      #hud {
+        top: 8px; left: 8px; font-size: 11px; line-height: 1.4;
+        padding: 6px 10px;
+      }
+      #hud .kbd-hint { display: none; }
+      #top-right-btns { top: 8px; right: 8px; gap: 4px; }
+      #top-right-btns button { padding: 4px 8px; font-size: 10px; }
+      #cam-switcher {
+        bottom: 8px; left: 8px;
+        flex-wrap: wrap;
+        max-width: calc(100vw - 200px);
+      }
+      #cam-switcher button { padding: 4px 8px; font-size: 10px; }
+      /* Drop the flex wrapper; position map/controls directly as fixed */
+      #right-stack { display: contents; }
+      #map-panel {
+        position: fixed; bottom: 8px; right: 8px;
+        width: 160px; height: 80px;
+        z-index: 10;
+      }
+      #viz-controls {
+        position: fixed; bottom: 96px; right: 8px;
+        width: 160px;
+        padding: 6px 8px; font-size: 11px; gap: 4px;
+        z-index: 10;
+      }
+      #viz-controls .slider-row {
+        grid-template-columns: 56px 1fr 30px; gap: 6px; font-size: 10px;
+      }
+    }
+    /* Landscape phones: vertical space is tight, compact further */
+    @media (max-height: 500px) and (orientation: landscape) {
+      #hud { font-size: 10px; padding: 4px 8px; line-height: 1.3; }
+      #map-panel { width: 140px; height: 70px; }
+      #viz-controls { bottom: 86px; width: 140px; }
+      #cam-switcher { max-width: none; }
+    }
     #loader-overlay {
       position: fixed; inset: 0;
       background: rgba(0, 0, 0, 0.85);
@@ -121,8 +183,8 @@
       CAM: <span id="hud-mode">NADIR</span>
     </div>
     <div>FPS: <span id="hud-fps">--</span></div>
-    <div style="margin-top:8px;font-size:11px;color:#888;">
-      [N]adir [F]orward [O]rbit [C]Free [E]xterior [M]ap [\]Fullscreen
+    <div class="kbd-hint" style="margin-top:8px;font-size:11px;color:#888;">
+      [N]adir [F]orward [O]rbit [C]Free [E]xterior [M]ap [H]ide UI [\]Fullscreen
     </div>
   </div>
   <div id="right-stack">
@@ -134,27 +196,29 @@
     <label><input type="checkbox" id="chk-clouds" checked> Show clouds</label>
     <label><input type="checkbox" id="chk-map" checked> Show map</label>
     <label><input type="checkbox" id="chk-shadows" checked> ISS self-shadows</label>
-    <hr>
-    <div class="slider-row">
-      <span>Day bright</span>
-      <input type="range" id="sld-day-b" min="0.1" max="3" step="0.05" value="1.0">
-      <span class="val" id="val-day-b">1.00</span>
-    </div>
-    <div class="slider-row">
-      <span>Day gamma</span>
-      <input type="range" id="sld-day-g" min="0.4" max="2.5" step="0.05" value="1.0">
-      <span class="val" id="val-day-g">1.00</span>
-    </div>
-    <div class="slider-row">
-      <span>Night bright</span>
-      <input type="range" id="sld-night-b" min="0.1" max="5" step="0.05" value="2.2">
-      <span class="val" id="val-night-b">2.20</span>
-    </div>
-    <div class="slider-row">
-      <span>Night gamma</span>
-      <input type="range" id="sld-night-g" min="0.4" max="2.5" step="0.05" value="0.8">
-      <span class="val" id="val-night-g">0.80</span>
-    </div>
+    <details id="tone-details" open>
+      <summary>Tone</summary>
+      <div class="slider-row">
+        <span>Day bright</span>
+        <input type="range" id="sld-day-b" min="0.1" max="3" step="0.05" value="1.0">
+        <span class="val" id="val-day-b">1.00</span>
+      </div>
+      <div class="slider-row">
+        <span>Day gamma</span>
+        <input type="range" id="sld-day-g" min="0.4" max="2.5" step="0.05" value="1.0">
+        <span class="val" id="val-day-g">1.00</span>
+      </div>
+      <div class="slider-row">
+        <span>Night bright</span>
+        <input type="range" id="sld-night-b" min="0.1" max="5" step="0.05" value="2.2">
+        <span class="val" id="val-night-b">2.20</span>
+      </div>
+      <div class="slider-row">
+        <span>Night gamma</span>
+        <input type="range" id="sld-night-g" min="0.4" max="2.5" step="0.05" value="0.8">
+        <span class="val" id="val-night-g">0.80</span>
+      </div>
+    </details>
   </div>
   </div>
   <div id="cam-switcher">
@@ -164,7 +228,10 @@
     <button data-cam="nadir">NADIR</button>
     <button data-cam="free">FREE</button>
   </div>
-  <button id="btn-fullscreen" title="Toggle fullscreen (\)">FULLSCREEN</button>
+  <div id="top-right-btns">
+    <button id="btn-ui-toggle" title="Hide UI (H)">HIDE UI</button>
+    <button id="btn-fullscreen" title="Toggle fullscreen (\)">FULLSCREEN</button>
+  </div>
   <script type="module" src="src/app.js"></script>
 </body>
 </html>

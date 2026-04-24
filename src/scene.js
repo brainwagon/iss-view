@@ -11,6 +11,7 @@ export function createScene() {
   );
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.domElement.id = 'webgl-canvas';
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = false;
@@ -19,11 +20,22 @@ export function createScene() {
   renderer.toneMappingExposure = 1.0;
   document.body.appendChild(renderer.domElement);
 
-  window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
+  let resizeFrame = 0;
+  const applyResize = () => {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
+    renderer.setSize(w, h);
+  };
+  const scheduleResize = () => {
+    cancelAnimationFrame(resizeFrame);
+    resizeFrame = requestAnimationFrame(() => {
+      resizeFrame = requestAnimationFrame(applyResize);
+    });
+  };
+  window.addEventListener('resize', scheduleResize);
+  window.addEventListener('orientationchange', scheduleResize);
 
   return { scene, camera, renderer };
 }

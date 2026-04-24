@@ -434,6 +434,9 @@ document.addEventListener('keydown', (e) => {
   if (key === '\\') {
     toggleFullscreen();
   }
+  if (key === 'h') {
+    toggleUiHidden();
+  }
   if (key === 'l') {
     const lights = [];
     scene.traverse((o) => { if (o.isLight) lights.push(o); });
@@ -463,6 +466,17 @@ function toggleFullscreen() {
   }
 }
 document.getElementById('btn-fullscreen').addEventListener('click', toggleFullscreen);
+
+function toggleUiHidden() {
+  const hidden = document.body.classList.toggle('ui-hidden');
+  const btn = document.getElementById('btn-ui-toggle');
+  btn.textContent = hidden ? 'SHOW UI' : 'HIDE UI';
+}
+document.getElementById('btn-ui-toggle').addEventListener('click', toggleUiHidden);
+
+if (window.matchMedia('(max-width: 640px)').matches) {
+  document.getElementById('tone-details').removeAttribute('open');
+}
 
 // Camera switcher buttons
 function updateCameraButtons() {

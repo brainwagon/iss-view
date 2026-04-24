@@ -12,7 +12,7 @@ export class ISSModel {
     this.sizeKm = 0.109;
   }
 
-  async load(url = 'https://github.com/brainwagon/iss-view/releases/download/assets-v1/iss-high.glb') {
+  async load(url = './assets/iss-high.glb') {
     return new Promise((resolve, reject) => {
       const dracoLoader = new DRACOLoader();
       dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/libs/draco/');

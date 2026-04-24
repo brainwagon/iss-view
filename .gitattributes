@@ -1,1 +1,1 @@
-*.glb filter=lfs diff=lfs merge=lfs -text
+assets/iss.glb filter=lfs diff=lfs merge=lfs -text
